@@ -13,3 +13,10 @@ pub struct BuildInfo {
     pub created_at: String,
     pub status: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadResponse {
+    pub build_id: String,
+    pub filename: String,
+    pub bytes: u64,
+}

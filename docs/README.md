@@ -17,6 +17,7 @@ execução.
 | [arquitetura.md](arquitetura.md) | Componentes, fluxo ponta a ponta, crates |
 | [seguranca.md](seguranca.md) | Modelo de segurança, criptografia at-rest, banco de dados |
 | [api.md](api.md) | Endpoints HTTP/mTLS |
+| [antivm.md](antivm.md) | Proteção anti-VM opcional (feature `antivm`) e cópia local corrigida |
 | [compilacao.md](compilacao.md) | Como compilar o servidor (Linux) e o cliente (Windows) |
 | [execucao.md](execucao.md) | Como executar cada binário e o fluxo completo |
 | [troubleshooting.md](troubleshooting.md) | Erros comuns e como resolver |

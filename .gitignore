@@ -16,3 +16,4 @@ data/
 *.log
 
 Rust-for-Malware-Development-Whitecat18/
+.aider*

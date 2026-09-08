@@ -85,9 +85,10 @@ Binário Linux com dois subcomandos (`new-build`, `serve`). Detalhes em
 Binário Windows gerado por build.
 
 - **`build.rs`** — lê as variáveis `OMC_*` (caminhos de arquivos PEM) e gera, em `OUT_DIR`,
-  um `config.rs` com `BUILD_ID`, `SERVER_URL` e `include_bytes!` do cert da CA e da
-  identidade mTLS (chave + cert concatenados). Sem as variáveis, usa defaults de dev, então
-  o crate ainda compila de forma avulsa.
+  um `config.rs` com `BUILD_ID`, `SERVER_URL` e `include_bytes!` do cert da CA, da
+  identidade mTLS (chave + cert concatenados) e da **chave pública PGP do build** (`PUB_KEY`,
+  via `OMC_BUILD_PUBKEY`). Sem as variáveis, usa defaults de dev, então o crate ainda compila
+  de forma avulsa.
 - **`main.rs`** — monta um `reqwest::blocking::Client` com `use_rustls_tls()` (feature
   `gzip`: negocia `Accept-Encoding: gzip` e descomprime de forma transparente), adiciona a
   CA embutida como raiz e a identidade mTLS embutida; `download_artifact` baixa o artefato em
@@ -96,6 +97,17 @@ Binário Windows gerado por build.
   Como o servidor envia o artefato via `Body::from_stream` (leitura do disco em chunks) e o
   `CompressionLayer` comprime em streaming, nem o servidor nem o cliente carregam o artefato
   inteiro além do necessário para a descriptografia em memória.
+  - **Upload de diagnósticos (cliente → servidor).** A função reutilizável `upload_diagnostic`
+    cifra um arquivo de diagnóstico com a `PUB_KEY` embutida (`common::pgp::encrypt_to_public`),
+    grava o ciphertext num temp `<file>.part` e faz `POST /builds/:id/diagnostics` com o corpo
+    em streaming (chunked). O servidor grava o blob cifrado em `data/diagnostics/<id>/` em
+    chunks (sem carga total na RAM). Reusa o par de chaves do build: o servidor pode abrir o
+    blob depois com a privada lacrada + passphrase. É o caminho inverso do download —
+    criptografia no cliente, blob opaco no servidor.
+  - **Proteção anti-VM (opcional).** A feature `antivm` (ligada por padrão) embute a biblioteca
+    `antivm` e chama a proteção no início do `main`, com efeito apenas no alvo Windows
+    (`#[cfg(all(windows, feature = "antivm"))]`). Desligável com `--no-default-features` (ou
+    `new-build --no-antivm`) para testes de desenvolvimento. Detalhes em [antivm.md](antivm.md).
 
 ## Fluxo de confiança (mTLS)
 

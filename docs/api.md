@@ -46,6 +46,34 @@ Retorna a chave privada PGP do build e a passphrase (para descriptografia local)
 - **Erros**: `403` (CN divergente), `404` (build inexistente), `500` (falha ao abrir os
   segredos lacrados).
 
+## `POST /builds/:id/diagnostics`
+
+Recebe um **arquivo de diagnóstico** enviado pelo cliente, **criptografado com PGP** (a chave
+pública do build, embutida no cliente). O servidor apenas **persiste o blob cifrado** em disco
+(`data/diagnostics/<id>/<timestamp>-<nome>.pgp`); futuramente será salvo no banco. Nenhum texto
+puro trafega nem é gravado no servidor.
+
+- **Autorização**: mTLS + o CN do certificado do cliente deve ser igual a `:id` (mesma
+  amarração cert → build das demais rotas).
+- **Corpo**: `application/octet-stream` com o ciphertext PGP, enviado em **streaming**
+  (`Transfer-Encoding: chunked`) — o servidor grava em chunks, sem carregar tudo na RAM
+  (simétrico ao streaming do download).
+- **Header opcional** `X-Diagnostic-Filename`: nome original do arquivo. O servidor usa apenas
+  o *basename* (sanitizado — sem componentes de caminho); default `diagnostic` se ausente.
+- **Respostas**:
+  - `200 OK` (JSON):
+
+    ```json
+    {
+      "build_id": "build-4789a71d0f101278",
+      "filename": "1725800000000000000-diag.txt.pgp",
+      "bytes": 512
+    }
+    ```
+  - `403 Forbidden` — CN do certificado ≠ `:id`.
+  - `404 Not Found` — build inexistente.
+  - `400 Bad Request` — falha ao ler o corpo; `500` — falha ao gravar em disco.
+
 ## Verificação rápida com `curl`
 
 Os arquivos `ca.pem` e `identity.pem` de um build ficam em `data/staging/<id>/` (gerados

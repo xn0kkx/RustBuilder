@@ -84,11 +84,20 @@ Windows binary generated per build.
 
 - **`build.rs`** — reads the `OMC_*` variables (paths to PEM files) and generates, in
   `OUT_DIR`, a `config.rs` with `BUILD_ID`, `SERVER_URL` and `include_bytes!` of the CA
-  cert and the mTLS identity (key + cert concatenated). Without the variables it uses dev
-  defaults, so the crate still compiles standalone.
+  cert, the mTLS identity (key + cert concatenated) and the **build's PGP public key**
+  (`PUB_KEY`, from `OMC_BUILD_PUBKEY`). Without the variables it uses dev defaults, so the
+  crate still compiles standalone.
 - **`main.rs`** — builds a `reqwest::blocking::Client` with `use_rustls_tls()`, adds the
   embedded CA as a root and the embedded mTLS identity; performs `GET` for the artifact and
-  the key; calls `common::pgp::decrypt`; writes the `--out` file.
+  the key; calls `common::pgp::decrypt`; writes the `--out` file. The reusable
+  `upload_diagnostic` function is the reverse path: it encrypts a diagnostic file with the
+  embedded `PUB_KEY` (`common::pgp::encrypt_to_public`), writes the ciphertext to a temp
+  `<file>.part`, and `POST`s it to `/builds/:id/diagnostics` with a streaming (chunked) body.
+  The `--upload <file>` flag is a thin wrapper over it for immediate use.
+- **Anti-VM protection (optional).** The `antivm` feature (on by default) embeds the `antivm`
+  library and invokes protection at the start of `main`, effective only on the Windows target
+  (`#[cfg(all(windows, feature = "antivm"))]`). Disable it with `--no-default-features` (or
+  `new-build --no-antivm`) for development testing. Details in [antivm.md](antivm.md).
 
 ## Trust flow (mTLS)
 

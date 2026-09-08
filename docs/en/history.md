@@ -68,9 +68,47 @@ backend.
   **functional** `client.exe` with the build id, URL and 2 certificate blocks (client + CA)
   embedded.
 
+## 5. Diagnostic upload (client → server)
+
+The reverse of the download: the client uploads diagnostic files **encrypted** and **in
+chunks**, reusing the build's key pair.
+
+- **Key**: the client encrypts with the **build's PGP public key**, now **embedded** in the
+  binary (`PUB_KEY`, via `OMC_BUILD_PUBKEY` in the orchestrator → `build.rs`), just like the CA
+  cert. The server can open the blob later with the sealed private key + passphrase (no decrypt
+  for now).
+- **Transport**: reusable `upload_diagnostic` function on the client — encrypts
+  (`encrypt_to_public`), writes a temp `<file>.part`, and `POST`s to `/builds/:id/diagnostics`
+  with a streaming (chunked) body. It is the piece the main program will call later; an
+  `--upload <file>` flag wrapper exposes the mode for testing/immediate use.
+- **Server**: `POST /builds/:id/diagnostics` route with the same mTLS authz (`require_cn`),
+  writes the body in chunks to `data/diagnostics/<id>/<timestamp>-<name>.pgp` (no full load in
+  RAM); name sanitized (basename) from the `X-Diagnostic-Filename` header. Replies with
+  `UploadResponse`.
+- No new dependencies.
+
+## 6. Optional anti-VM protection (`antivm` feature)
+
+Integration of the `antivm` library into the client as a **compile-time feature**, so
+development builds compile/run without it.
+
+- **`antivm` feature** (on by default) in `crates/client/Cargo.toml`; optional dependency
+  restricted to the Windows target. The protection call in `main` is gated by
+  `#[cfg(all(windows, feature = "antivm"))]` (enables only the VM filter; the crate's other
+  filters terminate the process on ordinary machines/networks).
+- **Disable**: `cargo build -p client --no-default-features`, or `new-build --no-antivm` (the
+  orchestrator passes `--no-default-features` when compiling the client).
+- **Patched local copy**: `antivm` 1.2.0 does not cross-compile from a Linux host (its original
+  `build.rs` uses `winapi::um` unconditionally, and build scripts compile for the host). We use
+  `vendor/antivm/` with the `build.rs` gated behind `#[cfg(windows)]`, redirected via
+  `[patch.crates-io]`. Details in [antivm.md](antivm.md).
+- Compiles in all four combinations: native/Windows × antivm on/off.
+
 ## Current state
 
 - `common`, `server`, `client` compile clean (debug and release).
 - The server runs on Linux; the client cross-compiles to Windows without a C toolchain.
+- The client downloads artifacts (download) and uploads encrypted diagnostics (upload).
+- Optional anti-VM protection via the `antivm` feature (default on; off for testing).
 - Documentation in `docs/` (Portuguese) and `docs/en/` (English), plus the overview in
   `README.md`.

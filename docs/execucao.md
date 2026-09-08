@@ -38,6 +38,7 @@ SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server \
 | `--uid <id>` | (obrigatório) | identificador lógico do release (vai no UID da chave PGP) |
 | `--server-url <url>` | `https://127.0.0.1:8443` | URL embutida no cliente |
 | `--target <triple>` | (nenhum = nativo) | alvo do cliente, ex.: `x86_64-pc-windows-gnu` |
+| `--no-antivm` | (desligado) | compila o cliente sem a proteção anti-VM (`--no-default-features`); útil para testes de desenvolvimento. Ver [antivm.md](antivm.md) |
 
 Saída (impressa no fim):
 
@@ -82,12 +83,25 @@ client.exe --out C:\saida\arquivo.bin
 
 | Flag | Padrão | Descrição |
 |---|---|---|
-| `--out <arquivo>` | (obrigatório) | onde gravar o arquivo descriptografado |
+| `--out <arquivo>` | (obrigatório no download) | onde gravar o arquivo descriptografado |
+| `--upload <arquivo>` | (opcional) | envia este arquivo como diagnóstico cifrado (modo upload) |
 | `--server <url>` | valor embutido no build | sobrescreve a URL do servidor |
 | `--build-id <id>` | valor embutido no build | sobrescreve o id do build |
 
 O cliente conecta por mTLS (com a identidade embutida), baixa o artefato cifrado e a chave
 privada, **descriptografa localmente** e grava em `--out`.
+
+### Upload de diagnósticos
+
+Com `--upload <arquivo>`, o cliente cifra o arquivo com a chave pública PGP do build (embutida
+no binário) e o envia ao servidor em chunks (`POST /builds/:id/diagnostics`); o servidor grava
+o blob cifrado em `data/diagnostics/<id>/`. O texto puro nunca sai da máquina do cliente. Esse
+modo é um wrapper fino sobre a função reutilizável `upload_diagnostic`, que a main principal
+poderá chamar diretamente.
+
+```bat
+client.exe --upload C:\diag\coleta.txt
+```
 
 O download é **comprimido (gzip no transporte)** e feito **em chunks**: durante a
 transferência o cliente grava o ciphertext (PGP, já cifrado) num arquivo temporário

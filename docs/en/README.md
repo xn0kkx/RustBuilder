@@ -18,6 +18,7 @@ and **decrypts locally** — the plaintext never exists on the server at runtime
 | [architecture.md](architecture.md) | Components, end-to-end flow, crates |
 | [security.md](security.md) | Security model, at-rest crypto, database |
 | [api.md](api.md) | HTTP/mTLS endpoints |
+| [antivm.md](antivm.md) | Optional anti-VM protection (`antivm` feature) and patched local copy |
 | [build.md](build.md) | How to compile the server (Linux) and client (Windows) |
 | [run.md](run.md) | How to run each binary and the full flow |
 | [history.md](history.md) | What was done, in order, and the decisions made |

@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["crates/common", "crates/server", "crates/client"]
+exclude = ["vendor/antivm"]
+
+# antivm patched to cross-compile from Linux; see docs/antivm.md
+[patch.crates-io]
+antivm = { path = "vendor/antivm" }
 
 [workspace.package]
 version = "0.1.0"

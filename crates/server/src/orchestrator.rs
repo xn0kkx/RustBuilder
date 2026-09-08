@@ -26,6 +26,7 @@ pub fn new_build(
     server_url: &str,
     data_dir: &Path,
     target: Option<&str>,
+    no_antivm: bool,
 ) -> Result<NewBuildOutput> {
     let build_id = gen_build_id(uid);
     let passphrase = gen_passphrase();
@@ -48,7 +49,7 @@ pub fn new_build(
         created_at: now_string(),
         status: "built".to_string(),
         artifact_path: artifact_path.to_string_lossy().to_string(),
-        pub_armored,
+        pub_armored: pub_armored.clone(),
         priv_armored,
         passphrase,
         client_cn: build_id.clone(),
@@ -61,8 +62,10 @@ pub fn new_build(
         ca_cert_pem,
         &issued.key_pem,
         &issued.cert_pem,
+        &pub_armored,
         data_dir,
         target,
+        no_antivm,
     )?;
 
     Ok(NewBuildOutput {
@@ -78,8 +81,10 @@ fn compile_client(
     ca_cert_pem: &str,
     client_key_pem: &str,
     client_cert_pem: &str,
+    pub_armored: &str,
     data_dir: &Path,
     target: Option<&str>,
+    no_antivm: bool,
 ) -> Result<PathBuf> {
     let workspace_root = workspace_root()?;
     let staging = data_dir.join("staging").join(build_id);
@@ -87,12 +92,14 @@ fn compile_client(
 
     let ca_path = staging.join("ca.pem");
     let identity_path = staging.join("identity.pem");
+    let pubkey_path = staging.join("pubkey.asc");
     fs::write(&ca_path, ca_cert_pem).context("failed to stage ca cert")?;
     fs::write(
         &identity_path,
         format!("{client_key_pem}\n{client_cert_pem}"),
     )
     .context("failed to stage client identity")?;
+    fs::write(&pubkey_path, pub_armored).context("failed to stage build public key")?;
 
     let mut cmd = Command::new("cargo");
     cmd.current_dir(&workspace_root)
@@ -103,7 +110,12 @@ fn compile_client(
         .env("OMC_BUILD_ID", build_id)
         .env("OMC_SERVER_URL", server_url)
         .env("OMC_CA_CERT", &ca_path)
-        .env("OMC_CLIENT_IDENTITY", &identity_path);
+        .env("OMC_CLIENT_IDENTITY", &identity_path)
+        .env("OMC_BUILD_PUBKEY", &pubkey_path);
+
+    if no_antivm {
+        cmd.arg("--no-default-features");
+    }
 
     if let Some(t) = target {
         cmd.arg("--target").arg(t);

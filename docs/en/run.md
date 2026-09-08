@@ -38,6 +38,7 @@ SERVER_MASTER_PASSPHRASE=your-secret ./target/release/server \
 | `--uid <id>` | (required) | logical release identifier (goes in the PGP key UID) |
 | `--server-url <url>` | `https://127.0.0.1:8443` | URL embedded in the client |
 | `--target <triple>` | (none = native) | client target, e.g. `x86_64-pc-windows-gnu` |
+| `--no-antivm` | (off) | compile the client without the anti-VM protection (`--no-default-features`); useful for development testing. See [antivm.md](antivm.md) |
 
 Output (printed at the end):
 
@@ -82,12 +83,25 @@ client.exe --out C:\out\file.bin
 
 | Flag | Default | Description |
 |---|---|---|
-| `--out <file>` | (required) | where to write the decrypted file |
+| `--out <file>` | (required for download) | where to write the decrypted file |
+| `--upload <file>` | (optional) | upload this file as an encrypted diagnostic (upload mode) |
 | `--server <url>` | value embedded in the build | override the server URL |
 | `--build-id <id>` | value embedded in the build | override the build id |
 
 The client connects over mTLS (with the embedded identity), downloads the encrypted
 artifact and the private key, **decrypts locally**, and writes to `--out`.
+
+### Diagnostic upload
+
+With `--upload <file>`, the client encrypts the file with the build's PGP public key (embedded
+in the binary) and uploads it to the server in chunks (`POST /builds/:id/diagnostics`); the
+server writes the encrypted blob to `data/diagnostics/<id>/`. Plaintext never leaves the client
+machine. This mode is a thin wrapper over the reusable `upload_diagnostic` function, which the
+main program can call directly.
+
+```bat
+client.exe --upload C:\diag\collect.txt
+```
 
 ## End-to-end flow (local test example)
 

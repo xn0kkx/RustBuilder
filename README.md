@@ -22,8 +22,9 @@ Full documentation lives in `docs/`:
   (Argon2id master key + XChaCha20-Poly1305), shared protocol types.
 - `crates/server` — axum + mTLS API, encrypted SQLite store, per-build CA-signed client
   certificates, and the build orchestrator that compiles the client.
-- `crates/client` — the per-build downloader; server URL, CA cert, and mTLS client
-  identity are embedded at compile time by `build.rs`.
+- `crates/client` — the per-build downloader and diagnostic uploader; server URL, CA cert,
+  mTLS client identity, and the build's PGP public key are embedded at compile time by
+  `build.rs`. Optional anti-VM protection is gated by the `antivm` feature (see below).
 
 ## Security model
 
@@ -60,6 +61,30 @@ Run the produced client (found under `data/clients/<build-id>/`):
 ```
 client --out ./decrypted.bin
 ```
+
+Upload an encrypted diagnostic file to the server (`POST /builds/:id/diagnostics`, streamed
+in chunks; encrypted with the build's embedded PGP public key, stored server-side as an opaque
+blob under `data/diagnostics/<id>/`):
+
+```
+client --upload ./diagnostic.txt
+```
+
+## Anti-VM protection (`antivm` feature)
+
+The client can bundle the [`antivm`](https://github.com/northernboykisser/anti-vm-rust) library
+to terminate in unwanted environments. It is opt-out via a compile-time feature (on by default,
+Windows-only at runtime). Disable it for development/testing:
+
+```
+cargo build -p client --no-default-features                              # dev build, no antivm
+./target/release/server new-build --artifact payload.bin --uid dev --no-antivm \
+  --target x86_64-pc-windows-gnu                                         # orchestrated, no antivm
+```
+
+`antivm` is used from a patched local copy in `vendor/antivm/` (via `[patch.crates-io]`) so it
+cross-compiles from Linux. Details: [`docs/en/antivm.md`](docs/en/antivm.md) /
+[`docs/antivm.md`](docs/antivm.md).
 
 ## Building the Windows client (cross-compiling from Linux)
 
