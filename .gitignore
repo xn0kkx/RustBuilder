@@ -1,0 +1,16 @@
+/target
+**/target
+
+/data
+data/
+
+*.pgp
+*.db
+*.db-wal
+*.db-shm
+
+*.pem
+*.p12
+*.pfx
+
+*.log
