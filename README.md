@@ -1,4 +1,4 @@
-# PGP Build Orchestrator
+# RustBuilder
 
 A server/client system where the **server** generates a fresh PGP keypair for every
 build, compiles a dedicated **client** binary for that build, encrypts the target

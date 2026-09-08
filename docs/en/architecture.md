@@ -25,7 +25,7 @@ the requested output file.
 ## Crates (Cargo workspace)
 
 ```
-Loaders/
+RustBuilder/
   Cargo.toml                 # [workspace] members = crates/*
   .cargo/config.toml         # mingw linker for the windows-gnu target
   crates/

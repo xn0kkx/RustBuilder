@@ -1,4 +1,4 @@
-# Documentation — PGP Build Orchestrator
+# Documentation — RustBuilder
 
 A **server/client** system in Rust where the server generates a **fresh PGP key per
 build**, encrypts the artifact with that key, stores every secret in an **encrypted SQLite

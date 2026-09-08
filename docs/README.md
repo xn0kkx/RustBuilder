@@ -1,4 +1,4 @@
-# Documentação — PGP Build Orchestrator
+# Documentação — RustBuilder
 
 Sistema **servidor/cliente** em Rust onde o servidor gera uma **chave PGP nova a cada
 build**, criptografa o artefato com essa chave, guarda todos os segredos num **banco

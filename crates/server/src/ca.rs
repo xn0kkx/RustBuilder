@@ -21,7 +21,7 @@ pub fn create_ca() -> Result<(String, String)> {
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     params
         .distinguished_name
-        .push(DnType::CommonName, "PGP Build Orchestrator CA");
+        .push(DnType::CommonName, "RustBuilder CA");
     params.key_usages = vec![
         KeyUsagePurpose::KeyCertSign,
         KeyUsagePurpose::CrlSign,
@@ -46,7 +46,7 @@ pub fn issue_server_cert(ca: &Ca, sans: Vec<String>) -> Result<Issued> {
     let mut params = CertificateParams::new(sans).context("server params")?;
     params
         .distinguished_name
-        .push(DnType::CommonName, "pgp-build-server");
+        .push(DnType::CommonName, "rustbuilder-server");
     params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     set_validity(&mut params, 3650);
