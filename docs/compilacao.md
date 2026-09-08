@@ -78,3 +78,11 @@ cargo build --release --workspace   # compila common + server + client (alvo nat
   ```bash
   cargo tree -e no-dev | grep -i aws-lc    # não deve retornar nada
   ```
+- Compressão gzip do download: servidor usa `tower-http` (feature `compression-gzip`) +
+  `tokio-util` (feature `io`, para o streaming do arquivo); cliente usa a feature `gzip` do
+  `reqwest`. O backend gzip é puro-Rust (`flate2`/`miniz_oxide`), **sem dependência C** — o
+  cliente Windows continua linkando sem MSVC/cmake/nasm. Confirme:
+  ```bash
+  cargo tree | grep -i miniz_oxide                       # deve aparecer
+  cargo tree | grep -iE 'zlib-ng|libz-sys'               # não deve retornar nada (backend C)
+  ```

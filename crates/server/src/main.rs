@@ -127,6 +127,7 @@ async fn run_server(
     let app = Router::new()
         .route("/builds/:id/artifact", get(artifact_handler))
         .route("/builds/:id/key", get(key_handler))
+        .layer(tower_http::compression::CompressionLayer::new().gzip(true))
         .with_state(state);
 
     tracing::info!("serving on https://{addr} (mTLS required)");
@@ -161,13 +162,17 @@ async fn artifact_handler(
         return Err(StatusCode::NOT_FOUND);
     };
 
-    let bytes = tokio::fs::read(&path)
+    // Stream o blob cifrado do disco em chunks (sem carregar tudo na RAM). O
+    // CompressionLayer do router aplica gzip em streaming quando o cliente pede.
+    let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = axum::body::Body::from_stream(stream);
 
     Ok((
         [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
-        bytes,
+        body,
     ))
 }
 

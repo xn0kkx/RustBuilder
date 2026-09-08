@@ -11,6 +11,8 @@ serde.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower-http = { version = "0.6", default-features = false, features = ["compression-gzip"] }
 axum = "0.7"
 axum-server = { version = "0.7", default-features = false, features = ["tls-rustls-no-provider"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }

@@ -14,9 +14,11 @@ requisição de novo build ──▶ SERVIDOR (Linux)
                                    ▼
                              CLIENT.EXE (Windows, autocontido, por build)
                              a. conecta via mTLS (apresenta o cert embutido)
-                             b. GET do artefato criptografado
+                             b. GET do artefato (gzip no transporte) baixado em chunks
+                                para um arquivo temp cifrado <out>.part no disco
                              c. GET da chave privada do build
-                             d. descriptografa em memória e grava o texto puro localmente
+                             d. descriptografa o temp em memória, grava o texto puro
+                                localmente e remove o <out>.part
 ```
 
 O texto puro (plaintext) só existe **na máquina do cliente**: em memória durante a
@@ -86,9 +88,14 @@ Binário Windows gerado por build.
   um `config.rs` com `BUILD_ID`, `SERVER_URL` e `include_bytes!` do cert da CA e da
   identidade mTLS (chave + cert concatenados). Sem as variáveis, usa defaults de dev, então
   o crate ainda compila de forma avulsa.
-- **`main.rs`** — monta um `reqwest::blocking::Client` com `use_rustls_tls()`, adiciona a
-  CA embutida como raiz e a identidade mTLS embutida; faz `GET` do artefato e da chave;
-  chama `common::pgp::decrypt`; grava o arquivo `--out`.
+- **`main.rs`** — monta um `reqwest::blocking::Client` com `use_rustls_tls()` (feature
+  `gzip`: negocia `Accept-Encoding: gzip` e descomprime de forma transparente), adiciona a
+  CA embutida como raiz e a identidade mTLS embutida; `download_artifact` baixa o artefato em
+  chunks (buffer de 64 KiB) gravando o ciphertext num arquivo temporário `<out>.part`; faz
+  `GET` da chave; lê o temp, chama `common::pgp::decrypt`, grava `--out` e remove o temp.
+  Como o servidor envia o artefato via `Body::from_stream` (leitura do disco em chunks) e o
+  `CompressionLayer` comprime em streaming, nem o servidor nem o cliente carregam o artefato
+  inteiro além do necessário para a descriptografia em memória.
 
 ## Fluxo de confiança (mTLS)
 

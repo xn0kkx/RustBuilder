@@ -89,6 +89,11 @@ client.exe --out C:\saida\arquivo.bin
 O cliente conecta por mTLS (com a identidade embutida), baixa o artefato cifrado e a chave
 privada, **descriptografa localmente** e grava em `--out`.
 
+O download é **comprimido (gzip no transporte)** e feito **em chunks**: durante a
+transferência o cliente grava o ciphertext (PGP, já cifrado) num arquivo temporário
+`<out>.part` ao lado de `--out`, descriptografa a partir dele e o **remove ao final** (também
+em caso de erro). O texto puro só existe em memória e no arquivo `--out`.
+
 ## Fluxo ponta a ponta (exemplo de teste local)
 
 ```bash

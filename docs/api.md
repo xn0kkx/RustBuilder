@@ -6,16 +6,26 @@ qualquer rota ser atingida.
 
 Base URL: `https://<host>:<porta>` (padrão `https://127.0.0.1:8443`).
 
+## Compressão e streaming
+
+Todas as respostas passam por um `CompressionLayer` (gzip). Quando o cliente envia
+`Accept-Encoding: gzip`, o servidor responde com `Content-Encoding: gzip` e
+`Transfer-Encoding: chunked` (o corpo é comprimido em streaming; respostas pequenas abaixo do
+limiar do layer não são comprimidas). O corpo, uma vez decodificado o gzip, é exatamente o
+mesmo conteúdo descrito abaixo — o `reqwest` do cliente (feature `gzip`) descomprime de forma
+transparente. O artefato é lido do disco e enviado em chunks, sem carga total em memória.
+
 ## `GET /builds/:id/artifact`
 
 Retorna o artefato **criptografado com PGP** (bytes opacos).
 
 - **Autorização**: mTLS + o CN do certificado do cliente deve ser igual a `:id`.
 - **Respostas**:
-  - `200 OK` — corpo `application/octet-stream` com o ciphertext PGP.
+  - `200 OK` — corpo `application/octet-stream` com o ciphertext PGP (após decodificar o
+    gzip do transporte, se negociado).
   - `403 Forbidden` — CN do certificado ≠ `:id`.
   - `404 Not Found` — build inexistente.
-  - `500` — erro ao ler o blob.
+  - `500` — erro ao abrir o blob.
 
 ## `GET /builds/:id/key`
 
