@@ -27,6 +27,7 @@ pub fn new_build(
     data_dir: &Path,
     target: Option<&str>,
     no_antivm: bool,
+    debug: bool,
 ) -> Result<NewBuildOutput> {
     let build_id = gen_build_id(uid);
     let passphrase = gen_passphrase();
@@ -66,6 +67,7 @@ pub fn new_build(
         data_dir,
         target,
         no_antivm,
+        debug,
     )?;
 
     Ok(NewBuildOutput {
@@ -85,6 +87,7 @@ fn compile_client(
     data_dir: &Path,
     target: Option<&str>,
     no_antivm: bool,
+    debug: bool,
 ) -> Result<PathBuf> {
     let workspace_root = workspace_root()?;
     let staging = data_dir.join("staging").join(build_id);
@@ -101,17 +104,27 @@ fn compile_client(
     .context("failed to stage client identity")?;
     fs::write(&pubkey_path, pub_armored).context("failed to stage build public key")?;
 
+    let ca_path = fs::canonicalize(&ca_path).context("failed to resolve staged ca cert")?;
+    let identity_path =
+        fs::canonicalize(&identity_path).context("failed to resolve staged client identity")?;
+    let pubkey_path =
+        fs::canonicalize(&pubkey_path).context("failed to resolve staged build public key")?;
+
     let mut cmd = Command::new("cargo");
     cmd.current_dir(&workspace_root)
         .arg("build")
         .arg("-p")
         .arg("client")
-        .arg("--release")
         .env("OMC_BUILD_ID", build_id)
         .env("OMC_SERVER_URL", server_url)
         .env("OMC_CA_CERT", &ca_path)
         .env("OMC_CLIENT_IDENTITY", &identity_path)
-        .env("OMC_BUILD_PUBKEY", &pubkey_path);
+        .env("OMC_BUILD_PUBKEY", &pubkey_path)
+        .env("OMC_DEBUG_CLIENT", if debug { "1" } else { "0" });
+
+    if !debug {
+        cmd.arg("--release");
+    }
 
     if no_antivm {
         cmd.arg("--no-default-features");
@@ -130,7 +143,7 @@ fn compile_client(
     if let Some(t) = target {
         built = built.join(t);
     }
-    built = built.join("release");
+    built = built.join(if debug { "debug" } else { "release" });
     let exe = if target.map(|t| t.contains("windows")).unwrap_or(false) {
         built.join("client.exe")
     } else {

@@ -4,7 +4,9 @@ mod orchestrator;
 mod tls;
 
 use std::net::SocketAddr;
+use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -18,6 +20,7 @@ use common::proto::{KeyResponse, UploadResponse};
 use futures_util::StreamExt;
 use rusqlite::Connection;
 use tokio::io::AsyncWriteExt;
+use uuid::Uuid;
 
 use crate::tls::PeerCn;
 
@@ -36,6 +39,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Console,
+    Operator {
+        #[command(subcommand)]
+        command: OperatorCommands,
+    },
+    User {
+        #[command(subcommand)]
+        command: UserCommands,
+    },
+    Builds {
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    Logs {
+        #[arg(long, default_value_t = 100)]
+        lines: usize,
+    },
+    Diagnostics {
+        #[arg(long)]
+        build_id: Option<String>,
+    },
     NewBuild {
         #[arg(long)]
         artifact: PathBuf,
@@ -61,6 +85,17 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum OperatorCommands {
+    Init,
+}
+
+#[derive(Subcommand)]
+enum UserCommands {
+    Create { username: String },
+    List,
+}
+
 #[derive(Clone)]
 struct AppState {
     conn: Arc<Mutex<Connection>>,
@@ -69,16 +104,10 @@ struct AppState {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
-
     tls::install_crypto_provider();
 
     let cli = Cli::parse();
+    let _log_guard = init_logging(&cli.data_dir)?;
     let passphrase = read_master_passphrase()?;
 
     let conn = db::open(&cli.db)?;
@@ -86,6 +115,50 @@ fn main() -> Result<()> {
     let meta = db::load_or_create_meta(&conn, &passphrase, ca::create_ca)?;
 
     match cli.command {
+        Commands::Console => run_console(conn, meta, &cli.data_dir),
+        Commands::Operator { command } => match command {
+            OperatorCommands::Init => {
+                let password = read_operator_password(true)?;
+                db::set_operator_password(&conn, &password)?;
+                println!("user operator configured");
+                Ok(())
+            }
+        },
+        Commands::User { command } => match command {
+            UserCommands::Create { username } => {
+                if db::any_user_configured(&conn)? || db::operator_configured(&conn)? {
+                    require_operator(&conn)?;
+                }
+                let password = read_operator_password(true)?;
+                db::set_user_password(&conn, &username, &password)?;
+                println!("user {username} configured");
+                Ok(())
+            }
+            UserCommands::List => {
+                require_operator(&conn)?;
+                for (username, created_at, enabled) in db::list_users(&conn)? {
+                    println!("{username}\t{created_at}\t{}", if enabled { "enabled" } else { "disabled" });
+                }
+                Ok(())
+            }
+        },
+        Commands::Builds { limit } => {
+            require_operator(&conn)?;
+            for (id, created_at, status, artifact_path) in db::list_builds(&conn, limit)? {
+                println!("{id}\t{created_at}\t{status}\t{artifact_path}");
+            }
+            Ok(())
+        }
+        Commands::Logs { lines } => {
+            require_operator(&conn)?;
+            print_last_lines(&log_path(&cli.data_dir), lines)?;
+            Ok(())
+        }
+        Commands::Diagnostics { build_id } => {
+            require_operator(&conn)?;
+            list_diagnostics(&cli.data_dir, build_id.as_deref())?;
+            Ok(())
+        }
         Commands::NewBuild {
             artifact,
             uid,
@@ -93,6 +166,7 @@ fn main() -> Result<()> {
             target,
             no_antivm,
         } => {
+            require_operator(&conn)?;
             let ca = ca::load_ca(&meta.ca_cert_pem, &meta.ca_key_pem)?;
             let out = orchestrator::new_build(
                 &conn,
@@ -105,7 +179,9 @@ fn main() -> Result<()> {
                 &cli.data_dir,
                 target.as_deref(),
                 no_antivm,
+                false,
             )?;
+            tracing::info!(build_id = %out.build_id, uid = %uid, no_antivm, "client build created");
             println!("build id:       {}", out.build_id);
             println!("client binary:  {}", out.client_binary.display());
             println!("encrypted file: {}", out.artifact_path.display());
@@ -115,8 +191,334 @@ fn main() -> Result<()> {
     }
 }
 
-#[tokio::main]
-async fn run_server(
+fn run_console(conn: Connection, meta: db::Meta, data_dir: &PathBuf) -> Result<()> {
+    require_operator(&conn)?;
+    let ca = ca::load_ca(&meta.ca_cert_pem, &meta.ca_key_pem)?;
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let interrupt_flag = Arc::clone(&interrupted);
+    ctrlc::set_handler(move || {
+        interrupt_flag.store(true, Ordering::SeqCst);
+    })
+    .context("failed to install console interrupt handler")?;
+    let mut selected_build = None;
+
+    println!("RustBuilder server console");
+    println!("Type 'help' for commands. Type 'exit' or 'quit' to leave.");
+
+    loop {
+        let prompt = selected_build
+            .as_deref()
+            .map(|id| format!("server({id})> "))
+            .unwrap_or_else(|| "server> ".to_string());
+        print!("{prompt}");
+        io::stdout().flush().context("failed to flush console prompt")?;
+
+        let mut line = String::new();
+        match io::stdin().read_line(&mut line) {
+            Ok(0) => {
+                println!();
+                break;
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                println!();
+                interrupted.store(false, Ordering::SeqCst);
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        }
+        if interrupted.swap(false, Ordering::SeqCst) {
+            println!();
+            continue;
+        }
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        match parts[0].to_ascii_lowercase().as_str() {
+            "help" | "?" => print_console_help(),
+            "exit" | "quit" => break,
+            "clear" => print!("\x1b[2J\x1b[H"),
+            "use" => {
+                let Some(id) = parts.get(1) else {
+                    println!("usage: use <build-id>");
+                    continue;
+                };
+                selected_build = Some((*id).to_string());
+            }
+            "show" => match &selected_build {
+                Some(id) => println!("selected build: {id}"),
+                None => println!("no build selected"),
+            },
+            "user" => match parts.get(1).copied() {
+                Some("list") => {
+                    for (username, created_at, enabled) in db::list_users(&conn)? {
+                        println!("{username}\t{created_at}\t{}", if enabled { "enabled" } else { "disabled" });
+                    }
+                }
+                Some("create") => {
+                    let Some(username) = parts.get(2) else {
+                        println!("usage: user create <username>");
+                        continue;
+                    };
+                    let password = read_operator_password(true)?;
+                    db::set_user_password(&conn, username, &password)?;
+                    println!("user {username} configured");
+                }
+                _ => println!("usage: user list | user create <username>"),
+            },
+            "builds" => {
+                let limit = parts
+                    .get(1)
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(50);
+                for (id, created_at, status, artifact_path) in db::list_builds(&conn, limit)? {
+                    println!("{id}\t{created_at}\t{status}\t{artifact_path}");
+                }
+            }
+            "logs" => {
+                let lines = parts
+                    .get(1)
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(100);
+                print_last_lines(&log_path(data_dir), lines)?;
+            }
+            "diagnostics" => {
+                let id = parts.get(1).copied().or(selected_build.as_deref());
+                list_diagnostics(data_dir, id)?;
+            }
+            "client" | "new-build" => {
+                if parts.get(1).copied() != Some("create") && parts[0] == "client" {
+                    println!("usage: client create --artifact <file> [--uid <id>] [options]");
+                    continue;
+                }
+                let args = if parts[0] == "client" { &parts[2..] } else { &parts[1..] };
+                match parse_console_build_args(args) {
+                    Ok((artifact, uid, server_url, target, no_antivm, debug)) => {
+                        let uid = uid.unwrap_or_else(|| Uuid::new_v4().to_string());
+                        let result = orchestrator::new_build(
+                            &conn,
+                            &meta.master_key,
+                            &ca,
+                            &meta.ca_cert_pem,
+                            &uid,
+                            &artifact,
+                            &server_url,
+                            data_dir,
+                            target.as_deref(),
+                            no_antivm,
+                            debug,
+                        );
+                        let out = match result {
+                            Ok(out) => out,
+                            Err(error) if interrupted.swap(false, Ordering::SeqCst) => {
+                                println!("client build cancelled");
+                                tracing::debug!(error = %error, "client build interrupted");
+                                continue;
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        selected_build = Some(out.build_id.clone());
+                        tracing::info!(build_id = %out.build_id, uid = %uid, no_antivm, "client build created from console");
+                        println!("build id:       {}", out.build_id);
+                        println!("client binary:  {}", out.client_binary.display());
+                        println!("encrypted file: {}", out.artifact_path.display());
+                    }
+                    Err(message) => println!("{message}"),
+                }
+            }
+            "listen" => {
+                let addr = parts
+                    .get(1)
+                    .map(|value| value.parse::<SocketAddr>())
+                    .transpose()
+                    .map_err(|error| anyhow::anyhow!("invalid listen address: {error}"))?
+                    .unwrap_or(([127, 0, 0, 1], 8443).into());
+                let san = if parts.len() > 2 {
+                    parts[2..].iter().map(|value| (*value).to_string()).collect()
+                } else {
+                    vec!["localhost".to_string(), "127.0.0.1".to_string()]
+                };
+                println!("starting HTTPS listener on https://{addr}; press Ctrl+C to stop");
+                return run_server(meta, conn, data_dir.clone(), addr, san);
+            }
+            command => println!("unknown command '{command}'; type 'help'"),
+        }
+    }
+    Ok(())
+}
+
+fn print_console_help() {
+    println!("commands:");
+    println!("  help                                  show this help");
+    println!("  user list                             list named users");
+    println!("  user create <username>                create or update a user");
+    println!("  builds [limit]                        list builds");
+    println!("  use <build-id>                        select a build");
+    println!("  show                                  show selected build");
+    println!("  logs [lines]                          show recent server logs");
+    println!("  diagnostics [build-id]                list encrypted diagnostics");
+    println!("  listen [addr] [san ...]               start the HTTPS listener");
+    println!("  client create --artifact <file> [--uid <id>] [options]");
+    println!("       --server-url <url> --target <triple> --no-antivm --debug");
+    println!("  clear                                 clear the terminal");
+    println!("  exit                                  leave the console");
+}
+
+fn parse_console_build_args(
+    args: &[&str],
+) -> Result<(PathBuf, Option<String>, String, Option<String>, bool, bool), String> {
+    let mut artifact = None;
+    let mut uid = None;
+    let mut server_url = "https://127.0.0.1:8443".to_string();
+    let mut target = None;
+    let mut no_antivm = false;
+    let mut debug = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index] {
+            "--artifact" => {
+                index += 1;
+                artifact = args.get(index).map(PathBuf::from);
+            }
+            "--uid" => {
+                index += 1;
+                uid = args.get(index).map(|value| (*value).to_string());
+            }
+            "--server-url" => {
+                index += 1;
+                if let Some(value) = args.get(index) {
+                    server_url = (*value).to_string();
+                }
+            }
+            "--target" => {
+                index += 1;
+                target = args.get(index).map(|value| (*value).to_string());
+            }
+            "--no-antivm" => no_antivm = true,
+            "--debug" => debug = true,
+            flag => return Err(format!("unknown option '{flag}'")),
+        }
+        index += 1;
+    }
+    let artifact = artifact.ok_or("missing --artifact <file>".to_string())?;
+    Ok((artifact, uid, server_url, target, no_antivm, debug))
+}
+
+fn init_logging(data_dir: &PathBuf) -> Result<tracing_appender::non_blocking::WorkerGuard> {
+    let log_dir = data_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).context("failed to create log directory")?;
+    let file = tracing_appender::rolling::never(log_dir, "server.log");
+    let (writer, guard) = tracing_appender::non_blocking(file);
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_writer(writer)
+        .init();
+    Ok(guard)
+}
+
+fn log_path(data_dir: &PathBuf) -> PathBuf {
+    data_dir.join("logs").join("server.log")
+}
+
+fn require_operator(conn: &Connection) -> Result<()> {
+    if !db::any_user_configured(conn)? && !db::operator_configured(conn)? {
+        anyhow::bail!("no users configured; run `server user create n0kk`");
+    }
+    let username = rpassword::prompt_password("Username: ")
+        .context("failed to read username")?;
+    let password = rpassword::prompt_password("Password: ")
+        .context("failed to read password")?;
+    let valid = db::verify_user_password(conn, &username, &password)?
+        || (username == "operator" && db::verify_operator_password(conn, &password)?);
+    if !valid {
+        anyhow::bail!("invalid credentials; legacy databases use username `operator`, or reset it with `server operator init`");
+    }
+    Ok(())
+}
+
+fn read_operator_password(confirm: bool) -> Result<String> {
+    let password = rpassword::prompt_password("New operator password: ")
+        .context("failed to read operator password")?;
+    if password.is_empty() {
+        anyhow::bail!("operator password cannot be empty");
+    }
+    if confirm {
+        let repeated = rpassword::prompt_password("Repeat operator password: ")
+            .context("failed to read operator password confirmation")?;
+        if password != repeated {
+            anyhow::bail!("operator passwords do not match");
+        }
+    }
+    Ok(password)
+}
+
+fn print_last_lines(path: &std::path::Path, lines: usize) -> Result<()> {
+    if !path.exists() {
+        println!("no log file at {}", path.display());
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read logs from {}", path.display()))?;
+    let entries: Vec<_> = content.lines().rev().take(lines).collect();
+    for entry in entries.into_iter().rev() {
+        println!("{entry}");
+    }
+    Ok(())
+}
+
+fn list_diagnostics(data_dir: &std::path::Path, build_id: Option<&str>) -> Result<()> {
+    let root = data_dir.join("diagnostics");
+    if let Some(id) = build_id {
+        list_diagnostic_dir(&root.join(id))?;
+        return Ok(());
+    }
+    if !root.exists() {
+        println!("no diagnostics found");
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(root).context("failed to read diagnostics directory")? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            list_diagnostic_dir(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn list_diagnostic_dir(path: &std::path::Path) -> Result<()> {
+    if !path.exists() {
+        println!("no diagnostics for {}", path.display());
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            println!("{}\t{} bytes", entry.path().display(), entry.metadata()?.len());
+        }
+    }
+    Ok(())
+}
+
+fn run_server(
+    meta: db::Meta,
+    conn: Connection,
+    data_dir: PathBuf,
+    addr: SocketAddr,
+    san: Vec<String>,
+) -> Result<()> {
+    let runtime = tokio::runtime::Runtime::new()
+        .context("failed to create async runtime")?;
+    runtime.block_on(run_server_async(meta, conn, data_dir, addr, san))
+}
+
+async fn run_server_async(
     meta: db::Meta,
     conn: Connection,
     data_dir: PathBuf,
@@ -142,6 +544,7 @@ async fn run_server(
         .with_state(state);
 
     tracing::info!("serving on https://{addr} (mTLS required)");
+    tracing::info!("TLS acceptor ready; waiting for incoming connections");
     axum_server::bind(addr)
         .acceptor(acceptor)
         .serve(app.into_make_service())
@@ -162,6 +565,7 @@ async fn artifact_handler(
     Extension(peer): Extension<PeerCn>,
     AxumPath(id): AxumPath<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    tracing::info!(build_id = %id, "artifact request received");
     require_cn(&peer, &id)?;
 
     let path = {
@@ -170,9 +574,11 @@ async fn artifact_handler(
     };
 
     let Some(path) = path else {
+        tracing::warn!(build_id = %id, "artifact request for unknown build id");
         return Err(StatusCode::NOT_FOUND);
     };
 
+    tracing::info!(build_id = %id, artifact_path = %path, "serving artifact stream");
     let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -190,6 +596,7 @@ async fn key_handler(
     Extension(peer): Extension<PeerCn>,
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<KeyResponse>, StatusCode> {
+    tracing::info!(build_id = %id, "key request received");
     require_cn(&peer, &id)?;
 
     let secret = {
@@ -199,13 +606,16 @@ async fn key_handler(
     };
 
     let Some((priv_armored, passphrase, client_cn)) = secret else {
+        tracing::warn!(build_id = %id, "key request for unknown build id");
         return Err(StatusCode::NOT_FOUND);
     };
 
     if client_cn != id {
+        tracing::warn!(build_id = %id, expected_client_cn = %client_cn, "mTLS CN mismatch for key request");
         return Err(StatusCode::FORBIDDEN);
     }
 
+    tracing::info!(build_id = %id, "key delivered to authenticated client");
     Ok(Json(KeyResponse {
         build_id: id,
         priv_armored,
@@ -220,6 +630,7 @@ async fn upload_diagnostics_handler(
     headers: HeaderMap,
     body: axum::body::Body,
 ) -> Result<Json<UploadResponse>, StatusCode> {
+    tracing::info!(build_id = %id, "diagnostic upload request received");
     require_cn(&peer, &id)?;
 
     let exists = {
@@ -239,6 +650,7 @@ async fn upload_diagnostics_handler(
         .get("x-diagnostic-filename")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("diagnostic");
+    tracing::info!(build_id = %id, filename = %raw_name, "receiving diagnostic payload");
     let base = std::path::Path::new(raw_name)
         .file_name()
         .and_then(|n| n.to_str())

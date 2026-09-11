@@ -38,6 +38,15 @@ cargo build --release -p server
 # saída: target/release/server   (ELF 64-bit Linux)
 ```
 
+Para compilar o servidor release e o cliente Windows em uma única etapa:
+
+```bash
+./build.sh
+```
+
+Use `./build.sh --debug` para builds nativos de debug. O script apenas compila os
+crates e não altera os artefatos de `data/`.
+
 ## Cliente (Windows)
 
 ```bash

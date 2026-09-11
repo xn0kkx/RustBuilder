@@ -16,6 +16,23 @@ Full documentation lives in `docs/`:
 - **Português**: [`docs/README.md`](docs/README.md) — arquitetura, segurança, API,
   compilação, execução, histórico, troubleshooting.
 
+## Current status
+
+The current implementation provides:
+
+- per-build PGP key generation and encrypted artifact storage;
+- encrypted-at-rest secrets using Argon2id and XChaCha20-Poly1305;
+- a Rust server with mTLS, build-bound client certificates, and a SQLite store;
+- streamed, gzip-capable artifact downloads;
+- streamed diagnostic uploads encrypted by the client with the build's public key;
+- optional Windows anti-VM protection, enabled by default and disabled with
+  `--no-antivm`;
+- Linux-to-Windows client cross-compilation through the `x86_64-pc-windows-gnu` target;
+- server operator commands for builds, logs, and diagnostics.
+
+Diagnostic ciphertext is currently stored as an opaque `.pgp` file under
+`data/diagnostics/<build-id>/`; indexing it in SQLite is a future step.
+
 ## Workspace
 
 - `crates/common` — PGP keygen/encrypt/decrypt (rpgp), sealed-storage crypto
@@ -39,13 +56,18 @@ Full documentation lives in `docs/`:
 
 ## Usage
 
+For a local build, `./build.sh` builds the release server and the Windows client.
+Use `./build.sh --debug` for native debug builds. The cross-compilation prerequisites
+are described below and in [`docs/en/build.md`](docs/en/build.md).
+
 Create a build (generates keypair, encrypts the artifact, compiles the client):
 
 ```
 SERVER_MASTER_PASSPHRASE=... \
 cargo run -p server -- --db data/orch.db --data-dir data \
   new-build --artifact ./payload.bin --uid my-release \
-  --server-url https://your-host:8443
+  --server-url https://your-host:8443 \
+  --target x86_64-pc-windows-gnu
 ```
 
 Run the API (mTLS required):
@@ -69,6 +91,9 @@ blob under `data/diagnostics/<id>/`):
 ```
 client --upload ./diagnostic.txt
 ```
+
+The client also accepts `--server` and `--build-id` when running a development build;
+generated clients have these values embedded by `build.rs`.
 
 ## Anti-VM protection (`antivm` feature)
 

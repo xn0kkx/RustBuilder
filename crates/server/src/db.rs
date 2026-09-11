@@ -1,5 +1,8 @@
 use anyhow::{anyhow, Context, Result};
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::Argon2;
 use common::sealed;
+use rand::rngs::OsRng;
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub struct Meta {
@@ -45,10 +48,144 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             passphrase_sealed BLOB NOT NULL,
             passphrase_nonce BLOB NOT NULL,
             client_cn TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS operator_auth (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            password_hash TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1
         );",
     )
     .context("failed to create schema")?;
     Ok(())
+}
+
+pub fn operator_configured(conn: &Connection) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM operator_auth WHERE id = 1)",
+        [],
+        |row| row.get(0),
+    )
+    .context("failed to query operator authentication")
+}
+
+pub fn set_operator_password(conn: &Connection, password: &str) -> Result<()> {
+    set_user_password(conn, "operator", password)?;
+    let salt = SaltString::generate(&mut OsRng);
+    let password_hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| anyhow!("failed to hash operator password: {e}"))?
+        .to_string();
+    conn.execute(
+        "INSERT INTO operator_auth (id, password_hash) VALUES (1, ?1)
+         ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash",
+        params![password_hash],
+    )
+    .context("failed to save operator authentication")?;
+    Ok(())
+}
+
+pub fn any_user_configured(conn: &Connection) -> Result<bool> {
+    conn.query_row("SELECT EXISTS(SELECT 1 FROM users)", [], |row| row.get(0))
+        .context("failed to query users")
+}
+
+pub fn set_user_password(conn: &Connection, username: &str, password: &str) -> Result<()> {
+    if username.trim().is_empty() || username.contains(char::is_whitespace) {
+        anyhow::bail!("username cannot be empty or contain whitespace");
+    }
+    let salt = SaltString::generate(&mut OsRng);
+    let password_hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| anyhow!("failed to hash user password: {e}"))?
+        .to_string();
+    conn.execute(
+        "INSERT INTO users (username, password_hash, created_at, enabled) VALUES (?1, ?2, ?3, 1)
+         ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash, enabled = 1",
+        params![username, password_hash, now_string()],
+    )
+    .context("failed to save user")?;
+    Ok(())
+}
+
+pub fn verify_user_password(conn: &Connection, username: &str, password: &str) -> Result<bool> {
+    let hash: Option<String> = conn
+        .query_row(
+            "SELECT password_hash FROM users WHERE username = ?1 AND enabled = 1",
+            params![username],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to query user")?;
+    let Some(hash) = hash else {
+        return Ok(false);
+    };
+    let parsed = PasswordHash::new(&hash)
+        .map_err(|e| anyhow!("stored user password hash is invalid: {e}"))?;
+    Ok(Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok())
+}
+
+pub fn list_users(conn: &Connection) -> Result<Vec<(String, String, bool)>> {
+    let mut stmt = conn
+        .prepare("SELECT username, created_at, enabled FROM users ORDER BY username")
+        .context("failed to prepare user listing")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0))
+        })
+        .context("failed to list users")?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("failed to read user listing")
+}
+
+fn now_string() -> String {
+    use time::format_description::well_known::Rfc3339;
+    time::OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+pub fn verify_operator_password(conn: &Connection, password: &str) -> Result<bool> {
+    let hash: Option<String> = conn
+        .query_row(
+            "SELECT password_hash FROM operator_auth WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to query operator authentication")?;
+    let Some(hash) = hash else {
+        return Ok(false);
+    };
+    let parsed = PasswordHash::new(&hash)
+        .map_err(|e| anyhow!("stored operator password hash is invalid: {e}"))?;
+    Ok(Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok())
+}
+
+pub fn list_builds(conn: &Connection, limit: usize) -> Result<Vec<(String, String, String, String)>> {
+    let mut stmt = conn
+        .prepare("SELECT id, created_at, status, artifact_path FROM builds ORDER BY created_at DESC LIMIT ?1")
+        .context("failed to prepare build listing")?;
+    let rows = stmt
+        .query_map(params![limit as i64], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+            ))
+        })
+        .context("failed to list builds")?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("failed to read build listing")
 }
 
 pub fn load_or_create_meta(

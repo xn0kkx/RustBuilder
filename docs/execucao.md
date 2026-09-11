@@ -17,6 +17,113 @@ Lida da variável de ambiente `SERVER_MASTER_PASSPHRASE`; se ausente, o servidor
 interativamente (entrada oculta). A mesma senha precisa ser usada em todas as execuções —
 é ela que abre o banco criptografado.
 
+### Senha de operador e comandos administrativos
+
+Além da senha-mestra, o CLI usa uma senha de operador separada para autorizar operações
+administrativas locais. A senha de operador é armazenada somente como hash Argon2id no
+SQLite e não substitui a senha-mestra.
+
+Configure-a uma vez:
+
+```bash
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server \
+  --db data/orchestrator.db --data-dir data operator init
+```
+
+Depois disso, os comandos abaixo pedem a senha de operador:
+
+```bash
+# Histórico dos builds, sem chaves ou passphrases privadas
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server builds --limit 50
+
+# Últimas linhas do log persistido
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server logs --lines 100
+
+# Diagnósticos continuam blobs PGP e não são descriptografados pelo servidor
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server diagnostics
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server diagnostics --build-id build-<hex>
+```
+
+Os logs ficam em `data/logs/server.log`. O CLI administrativo é local; não existe login
+administrativo pela API HTTP. A senha-mestra e a senha de operador nunca devem ser incluídas
+em argumentos ou arquivos de log.
+
+### Usuários nomeados
+
+Em um banco novo, crie o primeiro usuário diretamente:
+
+```bash
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server user create n0kk
+```
+
+O comando pede a senha duas vezes sem exibi-la. Depois, os comandos administrativos pedem
+`Username` e `Password`. Para listar usuários:
+
+```bash
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server user list
+```
+
+Em bancos antigos, `operator init` continua disponível e cria/atualiza o usuário legado
+`operator`.
+
+Se o banco antigo já possui `operator_auth`, primeiro redefina ou configure a senha legada:
+
+```bash
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server operator init
+```
+
+Depois crie `n0kk`. Na autenticação, informe o administrador existente (`operator`) e então
+escolha a nova senha de `n0kk`:
+
+```text
+Username: operator
+Password: <senha do operator>
+New operator password: <senha do n0kk>
+Repeat operator password: <senha do n0kk>
+```
+
+Para abrir o console interativo como `n0kk`:
+
+```bash
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server console
+```
+
+Informe `n0kk` no campo `Username` e a senha definida para ele:
+
+```text
+Username: n0kk
+Password:
+server>
+```
+
+Dentro do console, use `help`. Exemplos:
+
+```text
+builds
+logs 100
+diagnostics
+listen
+client create --artifact ./payload.bin --uid release-1 --no-antivm
+client create --artifact ./payload.bin --target x86_64-pc-windows-gnu --server-url https://127.0.0.1:8443 --no-antivm --debug
+exit
+```
+
+Com `--debug`, o client é compilado sem `--release`. Ao ser executado, ele cria
+`Desktop/RustBuilder-debug/client.log` e registra os eventos de execução e erros.
+
+O comando `listen` inicia a API HTTPS dentro do próprio console, usando
+`https://127.0.0.1:8443` por padrão. Ele aceita um endereço e SANs opcionais:
+
+```text
+listen 0.0.0.0:8443 seu-host 127.0.0.1
+```
+
+Enquanto o listener estiver ativo, o console fica bloqueado atendendo requisições.
+Para voltar ao prompt, encerre o processo do servidor e abra o console novamente.
+
+O usuário do CLI é uma credencial da aplicação e não altera o usuário do Linux. A passphrase
+`SERVER_MASTER_PASSPHRASE` continua sendo necessária em cada execução.
+
 ### Subcomando `new-build`
 
 Gera a chave PGP, criptografa o artefato, emite o certificado do cliente, grava tudo
@@ -83,13 +190,14 @@ client.exe --out C:\saida\arquivo.bin
 
 | Flag | Padrão | Descrição |
 |---|---|---|
-| `--out <arquivo>` | (obrigatório no download) | onde gravar o arquivo descriptografado |
+| `--out <arquivo>` | pasta temporária do sistema | onde gravar o arquivo descriptografado; se omitido, usa `rustbuilder-<build-id>.bin` em `%TEMP%` no Windows |
 | `--upload <arquivo>` | (opcional) | envia este arquivo como diagnóstico cifrado (modo upload) |
 | `--server <url>` | valor embutido no build | sobrescreve a URL do servidor |
 | `--build-id <id>` | valor embutido no build | sobrescreve o id do build |
 
 O cliente conecta por mTLS (com a identidade embutida), baixa o artefato cifrado e a chave
-privada, **descriptografa localmente** e grava em `--out`.
+privada, **descriptografa localmente** e grava em `--out`. Se `--out` for omitido, o arquivo
+é gravado automaticamente na pasta temporária do sistema.
 
 ### Upload de diagnósticos
 

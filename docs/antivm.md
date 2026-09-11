@@ -70,3 +70,8 @@ Por isso o crate é usado a partir de uma cópia local em `vendor/antivm/`, redi
 `[patch.crates-io]` no `Cargo.toml` raiz. A única mudança em relação ao upstream é envolver o
 uso da WinAPI no `build.rs` num bloco `#[cfg(windows)]`, permitindo que o build script compile
 em host Linux (cross-compilando o alvo Windows) sem alterar o comportamento em host Windows.
+
+Quando o filtro de VM dispara, o cliente grava um log mínimo com o build, processo e servidor,
+cifra esse arquivo com a chave pública embutida e o envia para `POST /builds/:id/diagnostics`.
+Depois da tentativa de upload, o processo é encerrado como antes. Se o upload falhar, o erro é
+escrito em stderr e o bloqueio continua valendo.

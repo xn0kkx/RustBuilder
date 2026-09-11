@@ -1,3 +1,14 @@
+# Current milestone
+
+The project now covers the complete encrypted build-delivery path: per-build PGP
+keys, sealed server storage, mTLS identity binding, local client decryption,
+chunked/gzip-capable transfers, and client-side encrypted diagnostic uploads.
+
+The client can be cross-compiled for Windows from Linux, and anti-VM protection is
+available through the default `antivm` feature with an explicit `--no-antivm` option
+for development and testing. Diagnostic blobs are stored on disk for now; database
+indexing is still pending.
+
 # History of what was done
 
 Chronological order of the development steps and the decisions made.

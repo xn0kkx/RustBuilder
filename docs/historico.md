@@ -1,3 +1,15 @@
+# Marco atual
+
+O projeto cobre hoje o fluxo completo de entrega de builds cifrados: chaves PGP
+por build, segredos lacrados no servidor, vínculo entre identidade mTLS e build,
+descriptografia local no cliente, transferências em chunks com suporte a gzip e
+upload de diagnósticos cifrados no cliente.
+
+O cliente pode ser cross-compilado para Windows a partir do Linux, e a proteção
+anti-VM está disponível pela feature padrão `antivm`, com a opção explícita
+`--no-antivm` para desenvolvimento e testes. Por enquanto, os diagnósticos são
+armazenados em disco; a indexação no banco ainda está pendente.
+
 # Histórico do que foi feito
 
 Ordem cronológica das etapas de desenvolvimento e das decisões tomadas.

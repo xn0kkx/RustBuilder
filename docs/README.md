@@ -25,6 +25,17 @@ execução.
 
 > **English documentation**: [`en/README.md`](en/README.md).
 
+## Estado atual
+
+O fluxo implementado inclui geração de chaves PGP por build, armazenamento lacrado
+com Argon2id/XChaCha20-Poly1305, API protegida por mTLS, download de artefatos em
+streaming com gzip, upload de diagnósticos cifrados pelo cliente e compilação
+cross-compile de clientes Windows. A proteção anti-VM é ativada por padrão e pode
+ser desativada com `--no-antivm`.
+
+Os diagnósticos cifrados são persistidos como blobs `.pgp` em
+`data/diagnostics/<build-id>/`; a indexação no SQLite ainda está planejada.
+
 ## Início rápido
 
 ```bash
@@ -33,6 +44,9 @@ cargo build --release -p server
 
 # 2. Cliente (Windows) — pré-requisitos em compilacao.md
 cargo build --release -p client --target x86_64-pc-windows-gnu
+
+# Alternativa: build.sh compila server release e client Windows
+./build.sh
 
 # 3. Criar um build (gera chave, criptografa, compila cliente Windows)
 SERVER_MASTER_PASSPHRASE=... ./target/release/server \

@@ -90,6 +90,7 @@ where
     fn accept(&self, stream: I, service: S) -> Self::Future {
         let inner = self.inner.clone();
         Box::pin(async move {
+            tracing::info!("mTLS handshake starting on incoming TLS socket");
             let (stream, service) = inner.accept(stream, service).await?;
             let cn = stream
                 .get_ref()
@@ -97,6 +98,11 @@ where
                 .peer_certificates()
                 .and_then(|certs| certs.first())
                 .and_then(|cert| ca::common_name_from_der(cert.as_ref()).ok());
+            if let Some(ref peer_cn) = cn {
+                tracing::info!(peer_cn, "mTLS handshake completed successfully");
+            } else {
+                tracing::warn!("mTLS handshake completed without a peer certificate common name");
+            }
             let service = Extension(PeerCn(cn)).layer(service);
             Ok((stream, service))
         })

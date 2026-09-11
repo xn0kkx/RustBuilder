@@ -6,9 +6,16 @@ reached.
 
 Base URL: `https://<host>:<port>` (default `https://127.0.0.1:8443`).
 
+## Compression and streaming
+
+The server supports gzip responses through `Accept-Encoding: gzip`. Artifact
+downloads and diagnostic uploads are streamed in chunks, so the server does not
+load the complete file into memory. The client enables gzip decompression through
+`reqwest`.
+
 ## `GET /builds/:id/artifact`
 
-Returns the **PGP-encrypted** artifact (opaque bytes).
+Returns the **PGP-encrypted** artifact (opaque bytes), streamed from disk.
 
 - **Authorization**: mTLS + the client certificate CN must equal `:id`.
 - **Responses**:

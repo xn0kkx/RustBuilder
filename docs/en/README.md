@@ -24,6 +24,16 @@ and **decrypts locally** — the plaintext never exists on the server at runtime
 | [history.md](history.md) | What was done, in order, and the decisions made |
 | [troubleshooting.md](troubleshooting.md) | Common errors and fixes |
 
+## Current status
+
+The implemented flow includes per-build PGP keys, Argon2id/XChaCha20-Poly1305
+sealed storage, an mTLS-protected API, gzip-capable streaming downloads,
+client-encrypted diagnostic uploads, and Linux-to-Windows client cross-compilation.
+Anti-VM protection is enabled by default and can be disabled with `--no-antivm`.
+
+Encrypted diagnostics are currently persisted as opaque `.pgp` blobs under
+`data/diagnostics/<build-id>/`; SQLite indexing remains planned.
+
 ## Quick start
 
 ```bash
@@ -32,6 +42,9 @@ cargo build --release -p server
 
 # 2. Client (Windows) — prerequisites in build.md
 cargo build --release -p client --target x86_64-pc-windows-gnu
+
+# Alternative: build.sh builds the release server and Windows client
+./build.sh
 
 # 3. Create a build (generates key, encrypts, compiles the Windows client)
 SERVER_MASTER_PASSPHRASE=... ./target/release/server \

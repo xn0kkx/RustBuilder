@@ -24,9 +24,14 @@ futures-util = "=0.3.31"
 rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
 x509-parser = "0.16"
 rusqlite = { version = "0.32", features = ["bundled"] }
+argon2.workspace = true
+rand.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 rpassword = "7"
+ctrlc = "3"
 time = { version = "0.3" }
 sha2 = "0.10"
 hex = "0.4"
+uuid.workspace = true

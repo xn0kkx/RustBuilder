@@ -8,12 +8,14 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OMC_CA_CERT");
     println!("cargo:rerun-if-env-changed=OMC_CLIENT_IDENTITY");
     println!("cargo:rerun-if-env-changed=OMC_BUILD_PUBKEY");
+    println!("cargo:rerun-if-env-changed=OMC_DEBUG_CLIENT");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     let build_id = env::var("OMC_BUILD_ID").unwrap_or_else(|_| "dev-build".to_string());
     let server_url =
         env::var("OMC_SERVER_URL").unwrap_or_else(|_| "https://127.0.0.1:8443".to_string());
+    let debug = env::var("OMC_DEBUG_CLIENT").as_deref() == Ok("1");
 
     let ca_path = resolve_asset(&out_dir, "ca.pem", env::var("OMC_CA_CERT").ok());
     let identity_path =
@@ -25,7 +27,8 @@ fn main() {
          pub const SERVER_URL: &str = {server_url:?};\n\
          pub const CA_CERT: &[u8] = include_bytes!({ca:?});\n\
          pub const CLIENT_IDENTITY: &[u8] = include_bytes!({identity:?});\n\
-         pub const PUB_KEY: &[u8] = include_bytes!({pubkey:?});\n",
+         pub const PUB_KEY: &[u8] = include_bytes!({pubkey:?});\n\
+         pub const DEBUG_BUILD: bool = {debug};\n",
         ca = ca_path,
         identity = identity_path,
         pubkey = pubkey_path,
