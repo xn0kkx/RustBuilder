@@ -28,6 +28,7 @@ pub fn new_build(
     target: Option<&str>,
     no_antivm: bool,
     debug: bool,
+    obfs: bool,
 ) -> Result<NewBuildOutput> {
     let build_id = gen_build_id(uid);
     let passphrase = gen_passphrase();
@@ -68,6 +69,7 @@ pub fn new_build(
         target,
         no_antivm,
         debug,
+        obfs,
     )?;
 
     Ok(NewBuildOutput {
@@ -88,6 +90,7 @@ fn compile_client(
     target: Option<&str>,
     no_antivm: bool,
     debug: bool,
+    obfs: bool,
 ) -> Result<PathBuf> {
     let workspace_root = workspace_root()?;
     let staging = data_dir.join("staging").join(build_id);
@@ -128,6 +131,10 @@ fn compile_client(
 
     if no_antivm {
         cmd.arg("--no-default-features");
+    }
+
+    if obfs {
+        cmd.arg("--features").arg("obfs");
     }
 
     if let Some(t) = target {
