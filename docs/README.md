@@ -30,8 +30,10 @@ execução.
 O fluxo implementado inclui geração de chaves PGP por build, armazenamento lacrado
 com Argon2id/XChaCha20-Poly1305, API protegida por mTLS, download de artefatos em
 streaming com gzip, upload de diagnósticos cifrados pelo cliente e compilação
-cross-compile de clientes Windows. A proteção anti-VM é ativada por padrão e pode
-ser desativada com `--no-antivm`.
+cross-compile de clientes Windows. O cliente descriptografa o artefato localmente, grava
+`--out` e o executa; a proteção anti-VM é ativada por padrão e pode ser desativada com
+`--no-antivm`. O servidor também oferece usuários nomeados, console local, logs e inventário
+de diagnósticos.
 
 Os diagnósticos cifrados são persistidos como blobs `.pgp` em
 `data/diagnostics/<build-id>/`; a indexação no SQLite ainda está planejada.
@@ -57,9 +59,21 @@ SERVER_MASTER_PASSPHRASE=... ./target/release/server \
 SERVER_MASTER_PASSPHRASE=... ./target/release/server \
   serve --addr 0.0.0.0:8443 --san seu-host
 
-# 5. No Windows, rodar o client.exe gerado
+# 5. No Windows, rodar o client.exe gerado; ele grava e executa o artefato
 client.exe --out C:\saida\arquivo.bin
 ```
+
+Para enviar um diagnóstico, use `client.exe --upload C:\diag\coleta.txt`. O arquivo é
+cifrado no cliente e salvo como blob `.pgp` no servidor; esse modo não executa o artefato.
+
+Antes dos comandos administrativos, crie um usuário local e abra o console:
+
+```bash
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server user create operador
+SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server console
+```
+
+No console, `help` lista `builds`, `logs`, `diagnostics`, `listen` e `client create`.
 
 ## Stack
 

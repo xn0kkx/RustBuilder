@@ -146,6 +146,8 @@ SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server \
 | `--server-url <url>` | `https://127.0.0.1:8443` | URL embutida no cliente |
 | `--target <triple>` | (nenhum = nativo) | alvo do cliente, ex.: `x86_64-pc-windows-gnu` |
 | `--no-antivm` | (desligado) | compila o cliente sem a proteção anti-VM (`--no-default-features`); útil para testes de desenvolvimento. Ver [antivm.md](antivm.md) |
+| `--debug` | (desligado) | compila um cliente nativo de debug em vez de release |
+| `--obfs` | (desligado) | habilita o subcomando `obf` de representação de shellcode |
 
 Saída (impressa no fim):
 
@@ -190,22 +192,28 @@ client.exe --out C:\saida\arquivo.bin
 
 | Flag | Padrão | Descrição |
 |---|---|---|
-| `--out <arquivo>` | pasta temporária do sistema | onde gravar o arquivo descriptografado; se omitido, usa `rustbuilder-<build-id>.bin` em `%TEMP%` no Windows |
+| `--out <arquivo>` | pasta temporária do sistema | onde gravar o arquivo descriptografado antes de executá-lo; se omitido, usa `rustbuilder-<build-id>.bin` em `%TEMP%` no Windows |
 | `--upload <arquivo>` | (opcional) | envia este arquivo como diagnóstico cifrado (modo upload) |
 | `--server <url>` | valor embutido no build | sobrescreve a URL do servidor |
 | `--build-id <id>` | valor embutido no build | sobrescreve o id do build |
 
 O cliente conecta por mTLS (com a identidade embutida), baixa o artefato cifrado e a chave
-privada, **descriptografa localmente** e grava em `--out`. Se `--out` for omitido, o arquivo
-é gravado automaticamente na pasta temporária do sistema.
+privada, **descriptografa localmente**, grava em `--out` e executa o artefato. No Windows, a
+execução carrega os bytes em chunks de 256 bytes para memória executável. Se `--out` for
+omitido, o arquivo é gravado automaticamente na pasta temporária do sistema.
+
+Com `--debug`, o cliente gerado grava um log em `Desktop/RustBuilder-debug/client.log`. Com
+`--obfs`, o cliente também aceita `obf --file <path> --technique <ipv4|ipv6|mac|uuid>
+--operation <obfuscate|deobfuscate>`; a obfuscação grava um nome de saída fixo no diretório
+atual.
 
 ### Upload de diagnósticos
 
 Com `--upload <arquivo>`, o cliente cifra o arquivo com a chave pública PGP do build (embutida
 no binário) e o envia ao servidor em chunks (`POST /builds/:id/diagnostics`); o servidor grava
 o blob cifrado em `data/diagnostics/<id>/`. O texto puro nunca sai da máquina do cliente. Esse
-modo é um wrapper fino sobre a função reutilizável `upload_diagnostic`, que a main principal
-poderá chamar diretamente.
+modo é um wrapper fino sobre a função reutilizável `upload_diagnostic`. Depois do upload, o
+cliente encerra sem executar o caminho de download ou execução.
 
 ```bat
 client.exe --upload C:\diag\coleta.txt

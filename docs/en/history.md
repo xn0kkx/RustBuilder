@@ -90,8 +90,8 @@ chunks**, reusing the build's key pair.
   for now).
 - **Transport**: reusable `upload_diagnostic` function on the client — encrypts
   (`encrypt_to_public`), writes a temp `<file>.part`, and `POST`s to `/builds/:id/diagnostics`
-  with a streaming (chunked) body. It is the piece the main program will call later; an
-  `--upload <file>` flag wrapper exposes the mode for testing/immediate use.
+  with a streaming (chunked) body. The `--upload <file>` flag exposes the mode directly;
+  upload mode exits without downloading or executing an artifact.
 - **Server**: `POST /builds/:id/diagnostics` route with the same mTLS authz (`require_cn`),
   writes the body in chunks to `data/diagnostics/<id>/<timestamp>-<name>.pgp` (no full load in
   RAM); name sanitized (basename) from the `X-Diagnostic-Filename` header. Replies with
@@ -120,6 +120,10 @@ development builds compile/run without it.
 - `common`, `server`, `client` compile clean (debug and release).
 - The server runs on Linux; the client cross-compiles to Windows without a C toolchain.
 - The client downloads artifacts (download) and uploads encrypted diagnostics (upload).
+- The client executes downloaded artifacts on Windows after writing the requested output, and
+  can write debug logs or expose the optional `obf` utility when built with those options.
+- The server provides protected local administration through named users and an interactive
+  console.
 - Optional anti-VM protection via the `antivm` feature (default on; off for testing).
 - Documentation in `docs/` (Portuguese) and `docs/en/` (English), plus the overview in
   `README.md`.

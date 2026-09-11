@@ -41,6 +41,11 @@ produce a test client without antivm through the orchestrator, use the `--no-ant
   --target x86_64-pc-windows-gnu
 ```
 
+When the VM filter matches, the client writes a minimal event log containing the build id,
+process id, and server, encrypts it with the embedded build public key, and attempts to upload
+it to `POST /builds/:id/diagnostics`. The client exits after the attempt; an upload failure
+does not disable the protection.
+
 ## Filter configuration
 
 The call in `crates/client/src/main.rs` enables only the VM filter and disables the rest

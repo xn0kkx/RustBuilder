@@ -18,7 +18,7 @@ requisição de novo build ──▶ SERVIDOR (Linux)
                                 para um arquivo temp cifrado <out>.part no disco
                              c. GET da chave privada do build
                              d. descriptografa o temp em memória, grava o texto puro
-                                localmente e remove o <out>.part
+                                localmente, remove o <out>.part e executa o artefato
 ```
 
 O texto puro (plaintext) só existe **na máquina do cliente**: em memória durante a
@@ -36,14 +36,15 @@ RustBuilder/
       src/sealed.rs          # chave-mestra Argon2id + seal/open XChaCha20-Poly1305
       src/proto.rs           # tipos serde de requisição/resposta
     server/                  # API + orquestrador (binário Linux)
-      src/main.rs            # CLI (serve / new-build), rotas axum, binding do CN mTLS
+      src/main.rs            # CLI, console, rotas axum, binding do CN mTLS
       src/db.rs              # schema rusqlite + colunas lacradas
       src/ca.rs              # CA rcgen + emissão de certificados
       src/orchestrator.rs    # gera chave, criptografa artefato, invoca cargo build
       src/tls.rs             # ServerConfig rustls com verificação de cliente (mTLS)
     client/                  # baixador por build (binário Windows)
       build.rs               # embute os assets do build via variáveis de ambiente
-      src/main.rs            # reqwest mTLS, busca chave+artefato, decrypt, grava saída
+      src/main.rs            # reqwest mTLS, download/decrypt/execução, upload de diagnóstico
+      src/utils/             # execução do artefato e utilitários opcionais de obfuscação
 ```
 
 ### `common`
@@ -61,7 +62,7 @@ Biblioteca sem estado, usada pelo servidor e pelo cliente.
 - **`proto.rs`**: `KeyResponse { build_id, priv_armored, passphrase }`, `BuildInfo`.
 
 ### `server`
-Binário Linux com dois subcomandos (`new-build`, `serve`). Detalhes em
+Binário Linux com comandos de build, serviço, administração e console. Detalhes em
 [execucao.md](execucao.md) e [api.md](api.md).
 
 - **`orchestrator.rs`** — `new_build`:
@@ -70,7 +71,8 @@ Binário Linux com dois subcomandos (`new-build`, `serve`). Detalhes em
   3. `encrypt_to_public(artefato)` → grava o blob cifrado em `data/artifacts/<id>.pgp`;
   4. emite o certificado de cliente (CN = build_id) assinado pela CA;
   5. compila o cliente: `cargo build -p client --release [--target ...]` com as variáveis
-     `OMC_BUILD_ID`, `OMC_SERVER_URL`, `OMC_CA_CERT`, `OMC_CLIENT_IDENTITY`, e copia o
+    `OMC_BUILD_ID`, `OMC_SERVER_URL`, `OMC_CA_CERT`, `OMC_CLIENT_IDENTITY`,
+    `OMC_BUILD_PUBKEY` e `OMC_DEBUG_CLIENT`, e copia o
      binário para `data/clients/<id>/`.
 - **`tls.rs`** — `ServerConfig` do rustls com `WebPkiClientVerifier` (exige certificado de
   cliente encadeado à CA). Um `MtlsAcceptor` customizado lê o CN do certificado do cliente
@@ -104,7 +106,11 @@ Binário Windows gerado por build.
     chunks (sem carga total na RAM). Reusa o par de chaves do build: o servidor pode abrir o
     blob depois com a privada lacrada + passphrase. É o caminho inverso do download —
     criptografia no cliente, blob opaco no servidor.
-  - **Proteção anti-VM (opcional).** A feature `antivm` (ligada por padrão) embute a biblioteca
+- **`utils::exec`** — no Windows, copia os bytes baixados para memória executável em chunks
+  de 256 bytes e chama o entry point; builds não-Windows rejeitam execução de shellcode.
+- **`utils::obf`** — com a feature `obfs`, oferece o subcomando `obf` para representações
+  IPv4, IPv6, MAC e UUID.
+- **Proteção anti-VM (opcional).** A feature `antivm` (ligada por padrão) embute a biblioteca
     `antivm` e chama a proteção no início do `main`, com efeito apenas no alvo Windows
     (`#[cfg(all(windows, feature = "antivm"))]`). Desligável com `--no-default-features` (ou
     `new-build --no-antivm`) para testes de desenvolvimento. Detalhes em [antivm.md](antivm.md).

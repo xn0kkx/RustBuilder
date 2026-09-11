@@ -41,6 +41,11 @@ gerar um cliente de teste sem antivm pelo orquestrador, use a flag `--no-antivm`
   --target x86_64-pc-windows-gnu
 ```
 
+Quando o filtro de VM dispara, o cliente grava um log mínimo com o build, processo e servidor,
+cifra esse arquivo com a chave pública embutida e o envia para `POST /builds/:id/diagnostics`.
+Depois da tentativa de upload, o processo é encerrado como antes. Se o upload falhar, o erro é
+escrito em stderr e o bloqueio continua valendo.
+
 ## Configuração dos filtros
 
 A chamada em `crates/client/src/main.rs` habilita apenas o filtro de VM e desliga os demais

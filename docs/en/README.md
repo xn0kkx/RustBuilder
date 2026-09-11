@@ -29,7 +29,9 @@ and **decrypts locally** — the plaintext never exists on the server at runtime
 The implemented flow includes per-build PGP keys, Argon2id/XChaCha20-Poly1305
 sealed storage, an mTLS-protected API, gzip-capable streaming downloads,
 client-encrypted diagnostic uploads, and Linux-to-Windows client cross-compilation.
-Anti-VM protection is enabled by default and can be disabled with `--no-antivm`.
+The client decrypts the artifact locally, writes `--out`, and executes it. Anti-VM protection
+is enabled by default and can be disabled with `--no-antivm`. The server also provides named
+users, a local console, persisted logs, and diagnostic inventory.
 
 Encrypted diagnostics are currently persisted as opaque `.pgp` blobs under
 `data/diagnostics/<build-id>/`; SQLite indexing remains planned.
@@ -55,9 +57,22 @@ SERVER_MASTER_PASSPHRASE=... ./target/release/server \
 SERVER_MASTER_PASSPHRASE=... ./target/release/server \
   serve --addr 0.0.0.0:8443 --san your-host
 
-# 5. On Windows, run the generated client.exe
+# 5. On Windows, run the generated client.exe; it writes and executes the artifact
 client.exe --out C:\out\file.bin
 ```
+
+To upload a diagnostic, use `client.exe --upload C:\diag\collect.txt`. The file is encrypted
+on the client and stored as an opaque `.pgp` blob on the server; upload mode does not execute
+the artifact.
+
+Create a local application user before using administrative commands:
+
+```bash
+SERVER_MASTER_PASSPHRASE=your-secret ./target/release/server user create operator
+SERVER_MASTER_PASSPHRASE=your-secret ./target/release/server console
+```
+
+Inside the console, `help` lists `builds`, `logs`, `diagnostics`, `listen`, and `client create`.
 
 ## Stack
 

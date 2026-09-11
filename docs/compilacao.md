@@ -44,7 +44,8 @@ Para compilar o servidor release e o cliente Windows em uma única etapa:
 ./build.sh
 ```
 
-Use `./build.sh --debug` para builds nativos de debug. O script apenas compila os
+Use `./build.sh --debug` para builds nativos de debug. Use `--no-antivm` para desligar a
+feature anti-VM padrão ou `--obfs` para habilitar o subcomando opcional de obfuscação. O script apenas compila os
 crates e não altera os artefatos de `data/`.
 
 ## Cliente (Windows)
@@ -61,7 +62,7 @@ release é produzido pelo orquestrador (ver abaixo e em [execucao.md](execucao.m
 ## Compilar o cliente funcional (via orquestrador)
 
 O subcomando `new-build` embute, em tempo de compilação, os dados específicos do build
-(build id, URL, CA, identidade mTLS) e chama o `cargo` para gerar o `.exe`:
+(build id, URL, CA, identidade mTLS e chave pública PGP) e chama o `cargo` para gerar o `.exe`:
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"   # garante que o cargo com o alvo Windows esteja no PATH
@@ -71,6 +72,9 @@ SERVER_MASTER_PASSPHRASE=sua-senha ./target/release/server \
   --target x86_64-pc-windows-gnu
 # saída: data/clients/<build-id>/client.exe
 ```
+
+As opções de build incluem `--debug`, `--no-antivm` e `--obfs`. Um cliente de debug grava o
+log de execução em `Desktop/RustBuilder-debug/client.log` no Windows.
 
 ## Workspace completo
 

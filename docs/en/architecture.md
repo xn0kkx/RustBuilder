@@ -16,7 +16,7 @@ new build request ──▶ SERVER (Linux)
                       a. connect over mTLS (presents the embedded cert)
                       b. GET the encrypted artifact
                       c. GET the build's private key
-                      d. decrypt in memory and write the plaintext locally
+                      d. decrypt in memory, write the plaintext locally, and execute it
 ```
 
 The plaintext exists **only on the client machine**: in memory during decryption and in
@@ -34,14 +34,15 @@ RustBuilder/
       src/sealed.rs          # Argon2id master key + XChaCha20-Poly1305 seal/open
       src/proto.rs           # serde request/response types
     server/                  # API + orchestrator (Linux binary)
-      src/main.rs            # CLI (serve / new-build), axum routes, mTLS CN binding
+      src/main.rs            # CLI, console, axum routes, mTLS CN binding
       src/db.rs              # rusqlite schema + sealed columns
       src/ca.rs              # rcgen CA + certificate issuance
       src/orchestrator.rs    # generate key, encrypt artifact, invoke cargo build
       src/tls.rs             # rustls ServerConfig with client verification (mTLS)
     client/                  # per-build downloader (Windows binary)
       build.rs               # embeds the build assets via environment variables
-      src/main.rs            # reqwest mTLS, fetch key+artifact, decrypt, write output
+      src/main.rs            # reqwest mTLS, fetch/decrypt/execute, diagnostic upload
+      src/utils/              # artifact execution and optional obfuscation utilities
 ```
 
 ### `common`
@@ -59,8 +60,8 @@ Stateless library, used by both server and client.
 - **`proto.rs`**: `KeyResponse { build_id, priv_armored, passphrase }`, `BuildInfo`.
 
 ### `server`
-Linux binary with two subcommands (`new-build`, `serve`). Details in [run.md](run.md) and
-[api.md](api.md).
+Linux binary with build, serving, administration, and console commands. Details in
+[run.md](run.md) and [api.md](api.md).
 
 - **`orchestrator.rs`** — `new_build`:
   1. generate `build_id` (`build-` + hex of SHA-256(uid + nanos)) and a random passphrase;
@@ -68,7 +69,8 @@ Linux binary with two subcommands (`new-build`, `serve`). Details in [run.md](ru
   3. `encrypt_to_public(artifact)` → write the ciphertext blob to `data/artifacts/<id>.pgp`;
   4. issue the client certificate (CN = build_id) signed by the CA;
   5. compile the client: `cargo build -p client --release [--target ...]` with the
-     `OMC_BUILD_ID`, `OMC_SERVER_URL`, `OMC_CA_CERT`, `OMC_CLIENT_IDENTITY` variables, and
+    `OMC_BUILD_ID`, `OMC_SERVER_URL`, `OMC_CA_CERT`, `OMC_CLIENT_IDENTITY`,
+    `OMC_BUILD_PUBKEY`, and `OMC_DEBUG_CLIENT` variables, and
      copy the binary to `data/clients/<id>/`.
 - **`tls.rs`** — rustls `ServerConfig` with `WebPkiClientVerifier` (requires a client
   certificate chaining to the CA). A custom `MtlsAcceptor` reads the client certificate's
@@ -94,6 +96,11 @@ Windows binary generated per build.
   embedded `PUB_KEY` (`common::pgp::encrypt_to_public`), writes the ciphertext to a temp
   `<file>.part`, and `POST`s it to `/builds/:id/diagnostics` with a streaming (chunked) body.
   The `--upload <file>` flag is a thin wrapper over it for immediate use.
+- **`utils::exec`** — on Windows, copies the downloaded bytes into executable memory in
+  256-byte chunks and invokes the entry point; non-Windows builds reject raw shellcode
+  execution.
+- **`utils::obf`** — when the `obfs` feature is enabled, exposes the `obf` subcommand for
+  IPv4, IPv6, MAC, and UUID representations.
 - **Anti-VM protection (optional).** The `antivm` feature (on by default) embeds the `antivm`
   library and invokes protection at the start of `main`, effective only on the Windows target
   (`#[cfg(all(windows, feature = "antivm"))]`). Disable it with `--no-default-features` (or

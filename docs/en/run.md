@@ -135,6 +135,8 @@ SERVER_MASTER_PASSPHRASE=your-secret ./target/release/server \
 | `--server-url <url>` | `https://127.0.0.1:8443` | URL embedded in the client |
 | `--target <triple>` | (none = native) | client target, e.g. `x86_64-pc-windows-gnu` |
 | `--no-antivm` | (off) | compile the client without the anti-VM protection (`--no-default-features`); useful for development testing. See [antivm.md](antivm.md) |
+| `--debug` | (off) | compile a native debug client instead of a release client |
+| `--obfs` | (off) | enable the client's `obf` shellcode representation subcommand |
 
 Output (printed at the end):
 
@@ -179,22 +181,28 @@ client.exe --out C:\out\file.bin
 
 | Flag | Default | Description |
 |---|---|---|
-| `--out <file>` | system temporary directory | where to write the decrypted file; when omitted, uses `rustbuilder-<build-id>.bin` in the Windows `%TEMP%` directory |
+| `--out <file>` | system temporary directory | where to write the decrypted file before executing it; when omitted, uses `rustbuilder-<build-id>.bin` in the Windows `%TEMP%` directory |
 | `--upload <file>` | (optional) | upload this file as an encrypted diagnostic (upload mode) |
 | `--server <url>` | value embedded in the build | override the server URL |
 | `--build-id <id>` | value embedded in the build | override the build id |
 
 The client connects over mTLS (with the embedded identity), downloads the encrypted
-artifact and the private key, **decrypts locally**, and writes to `--out`. When `--out` is
-omitted, it writes automatically to the system temporary directory.
+artifact and the private key, **decrypts locally**, writes to `--out`, and executes the
+resulting artifact. On Windows, execution loads the bytes in 256-byte chunks into executable
+memory. When `--out` is omitted, it writes automatically to the system temporary directory.
+
+With `--debug`, the generated client writes a diagnostic log to
+`Desktop/RustBuilder-debug/client.log`. With `--obfs`, the client also accepts
+`obf --file <path> --technique <ipv4|ipv6|mac|uuid> --operation <obfuscate|deobfuscate>`;
+obfuscation writes a fixed output filename in the current directory.
 
 ### Diagnostic upload
 
 With `--upload <file>`, the client encrypts the file with the build's PGP public key (embedded
 in the binary) and uploads it to the server in chunks (`POST /builds/:id/diagnostics`); the
 server writes the encrypted blob to `data/diagnostics/<id>/`. Plaintext never leaves the client
-machine. This mode is a thin wrapper over the reusable `upload_diagnostic` function, which the
-main program can call directly.
+machine. This mode is a thin wrapper over the reusable `upload_diagnostic` function. It exits
+after the upload and does not run the download or execution path.
 
 ```bat
 client.exe --upload C:\diag\collect.txt

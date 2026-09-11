@@ -89,8 +89,8 @@ chunks**, reusando o par de chaves do build.
   servidor pode abrir o blob depois com a privada lacrada + passphrase (nenhum decrypt agora).
 - **Transporte**: função reutilizável `upload_diagnostic` no cliente — cifra
   (`encrypt_to_public`), grava um temp `<file>.part` e faz `POST /builds/:id/diagnostics` com
-  o corpo em streaming (chunked). É a peça que a main principal chamará depois; um wrapper de
-  flag `--upload <arquivo>` expõe o modo para teste/uso imediato.
+  o corpo em streaming (chunked). A flag `--upload <arquivo>` expõe o modo diretamente; o
+  modo de upload encerra sem baixar ou executar um artefato.
 - **Servidor**: rota `POST /builds/:id/diagnostics` com a mesma authz mTLS (`require_cn`),
   grava o corpo em chunks em `data/diagnostics/<id>/<timestamp>-<nome>.pgp` (sem carga total na
   RAM); nome sanitizado (basename) do header `X-Diagnostic-Filename`. Responde `UploadResponse`.
@@ -118,5 +118,8 @@ de desenvolvimento compilem/rodem sem ela.
 - `common`, `server`, `client` compilam limpos (dev e release).
 - Servidor roda em Linux; cliente cross-compila para Windows sem toolchain C.
 - Cliente baixa artefatos (download) e envia diagnósticos cifrados (upload).
+- Cliente executa artefatos baixados no Windows após gravar a saída solicitada, e pode gerar
+  logs de debug ou expor o utilitário opcional `obf` quando compilado com essas opções.
+- Servidor oferece administração local protegida por usuários nomeados e console interativo.
 - Proteção anti-VM opcional via feature `antivm` (padrão on; off para testes).
 - Documentação em `docs/` e visão geral em `README.md`.
